@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { ApiError } from '../../../api/client';
-import { libellesSexe, type NaissanceDetail } from '../../../api/naissances';
+import { formaterCode, libellesSexe, type NaissanceDetail } from '../../../api/naissances';
 import { useAnnulerNaissance, useNaissance } from '../hooks';
 import { formatDate, formatDateHeure, StatutBadge } from '../components/StatutBadge';
 
@@ -45,6 +45,12 @@ export function DetailNaissancePage() {
       </div>
       <p className="numero">Acte n° {n.numeroActe}</p>
 
+      <p>
+        <Link to={`/naissances/${n.id}/certificat`} className="bouton">
+          🖨 Certificat à imprimer
+        </Link>
+      </p>
+
       <dl className="fiche">
         <dt>Sexe</dt>
         <dd>{libellesSexe[n.sexe]}</dd>
@@ -53,6 +59,12 @@ export function DetailNaissancePage() {
         <dt>Lieu</dt>
         <dd>
           {n.etablissement}, {n.ville}
+        </dd>
+        <dt>Commune d’enregistrement</dt>
+        <dd>{n.commune}</dd>
+        <dt>Code de vérification</dt>
+        <dd>
+          <code>{formaterCode(n.codeVerification)}</code>
         </dd>
         <dt>Poids / taille</dt>
         <dd>

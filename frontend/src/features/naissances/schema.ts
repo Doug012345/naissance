@@ -44,6 +44,7 @@ export function creerSchemaNaissance(maintenant: () => Date = () => new Date()) 
         ),
       etablissement: texte('L’établissement', 200),
       ville: texte('La ville'),
+      commune: texte('La commune'),
       poidsGrammes: z
         .number({ error: 'Le poids est obligatoire.' })
         .int('Nombre entier de grammes.')
@@ -99,6 +100,7 @@ export const valeursParDefaut: NaissanceFormInput = {
   dateHeureNaissance: '',
   etablissement: '',
   ville: '',
+  commune: '',
   poidsGrammes: Number.NaN,
   tailleCm: Number.NaN,
   mere: { prenom: '', nom: '', dateNaissance: '' },
@@ -115,6 +117,7 @@ export function versRequete(v: NaissanceFormValues): EnregistrerNaissanceRequete
     dateHeureNaissance: v.dateHeureNaissance,
     etablissement: v.etablissement,
     ville: v.ville,
+    commune: v.commune,
     poidsGrammes: v.poidsGrammes,
     tailleCm: v.tailleCm,
     mere: v.mere,

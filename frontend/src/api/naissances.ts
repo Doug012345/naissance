@@ -39,6 +39,10 @@ export interface NaissanceDetail {
   dateHeureNaissance: string;
   etablissement: string;
   ville: string;
+  /** Commune où l'acte est enregistré (en-tête et sceau du certificat). */
+  commune: string;
+  /** Code du QR code, 8 caractères sans tiret (ex. « K7QF9M2X »). */
+  codeVerification: string;
   poidsGrammes: number;
   tailleCm: number;
   mere: Parent;
@@ -56,11 +60,32 @@ export interface EnregistrerNaissanceRequete {
   dateHeureNaissance: string;
   etablissement: string;
   ville: string;
+  commune: string;
   poidsGrammes: number;
   tailleCm: number;
   mere: Parent;
   secondParent: Parent | null;
 }
+
+/** Une impression du certificat (copie numérotée, journalisée côté serveur). */
+export interface Delivrance {
+  numeroCopie: number;
+  dateDelivranceUtc: string;
+  delivrePar: string;
+}
+
+/** Réponse publique de la page de vérification : le strict minimum. */
+export interface Verification {
+  numeroActe: string;
+  initialesEnfant: string;
+  dateNaissance: string;
+  commune: string;
+  statut: StatutNaissance;
+  dateEnregistrementUtc: string;
+}
+
+/** « K7QF9M2X » → « K7QF-9M2X » (plus facile à lire et à recopier). */
+export const formaterCode = (code: string) => (code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code);
 
 export interface FiltresNaissances {
   recherche?: string;
@@ -93,6 +118,14 @@ export const naissancesApi = {
       method: 'POST',
       body: JSON.stringify({ motif, version }),
     });
+  },
+
+  delivrer(id: string) {
+    return http<Delivrance>(`/api/naissances/${id}/delivrances`, { method: 'POST' });
+  },
+
+  verifier(code: string, signal?: AbortSignal) {
+    return http<Verification>(`/api/verification/${encodeURIComponent(code)}`, { signal });
   },
 };
 

@@ -18,7 +18,7 @@ namespace Naissances.Infrastructure.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("etatcivil")
-                .HasAnnotation("ProductVersion", "10.0.0")
+                .HasAnnotation("ProductVersion", "10.0.15")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -242,10 +242,49 @@ namespace Naissances.Infrastructure.Migrations
                     b.ToTable("AspNetUserTokens", "etatcivil");
                 });
 
+            modelBuilder.Entity("Naissances.Domain.Naissances.DelivranceCertificat", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("DateDelivranceUtc")
+                        .HasColumnType("datetime2(0)");
+
+                    b.Property<string>("DelivrePar")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<Guid>("NaissanceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("NumeroCopie")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NaissanceId", "NumeroCopie")
+                        .IsUnique();
+
+                    b.ToTable("DelivrancesCertificat", "etatcivil");
+                });
+
             modelBuilder.Entity("Naissances.Domain.Naissances.Naissance", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CodeVerification")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .IsUnicode(false)
+                        .HasColumnType("char(8)")
+                        .IsFixedLength();
+
+                    b.Property<string>("Commune")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<DateTime>("DateEnregistrementUtc")
                         .HasColumnType("datetime2(0)");
@@ -296,6 +335,9 @@ namespace Naissances.Infrastructure.Migrations
                         .HasColumnType("nvarchar(100)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CodeVerification")
+                        .IsUnique();
 
                     b.HasIndex("DateHeureNaissance");
 
@@ -353,6 +395,15 @@ namespace Naissances.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Naissances.Domain.Naissances.DelivranceCertificat", b =>
+                {
+                    b.HasOne("Naissances.Domain.Naissances.Naissance", null)
+                        .WithMany()
+                        .HasForeignKey("NaissanceId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 

@@ -15,6 +15,8 @@ export const fixtures: NaissanceDetail[] = [
     dateHeureNaissance: '2026-11-10T08:30:00',
     etablissement: 'CHU Sainte-Justine',
     ville: 'Montréal',
+    commune: 'Montréal',
+    codeVerification: 'K7QF9M2X',
     poidsGrammes: 3400,
     tailleCm: 50.5,
     mere: { prenom: 'Marie', nom: 'TREMBLAY', dateNaissance: '1994-03-02' },
@@ -33,6 +35,8 @@ export const fixtures: NaissanceDetail[] = [
     dateHeureNaissance: '2026-11-12T22:10:00',
     etablissement: 'Hôpital de l’Enfant-Jésus',
     ville: 'Québec',
+    commune: 'Québec',
+    codeVerification: 'A1B2C3D4',
     poidsGrammes: 3650,
     tailleCm: 52,
     mere: { prenom: 'Julie', nom: 'GAGNON', dateNaissance: '1990-07-15' },
@@ -45,8 +49,10 @@ export const fixtures: NaissanceDetail[] = [
 ];
 
 let db: NaissanceDetail[] = [];
+let copies: Record<string, number> = {};
 export const reinitialiserDb = () => {
   db = structuredClone(fixtures);
+  copies = {};
 };
 
 const resume = (n: NaissanceDetail): NaissanceResume => ({
@@ -124,6 +130,31 @@ export const handlers = [
   http.post('/api/naissances', async () =>
     HttpResponse.json({ id: '33333333-3333-3333-3333-333333333333' }, { status: 201 }),
   ),
+
+  http.post('/api/naissances/:id/delivrances', ({ params }) => {
+    const n = db.find((x) => x.id === params.id);
+    if (!n) return HttpResponse.json({ status: 404 }, { status: 404 });
+    copies[n.id] = (copies[n.id] ?? 0) + 1;
+    return HttpResponse.json(
+      { numeroCopie: copies[n.id], dateDelivranceUtc: '2026-11-19T14:00:00Z', delivrePar: utilisateurTest.courriel },
+      { status: 201 },
+    );
+  }),
+
+  // Comme l'API : saisie tolérante (minuscules, tiret) et infos minimales.
+  http.get('/api/verification/:code', ({ params }) => {
+    const code = String(params.code).toUpperCase().replace(/[-\s]/g, '');
+    const n = db.find((x) => x.codeVerification === code);
+    if (!n) return HttpResponse.json({ status: 404, title: 'Certificat introuvable' }, { status: 404 });
+    return HttpResponse.json({
+      numeroActe: n.numeroActe,
+      initialesEnfant: `${n.prenom[0]}. ${n.nom[0]}.`,
+      dateNaissance: n.dateHeureNaissance.slice(0, 10),
+      commune: n.commune,
+      statut: n.statut,
+      dateEnregistrementUtc: n.dateEnregistrementUtc,
+    });
+  }),
 
   http.post('/api/naissances/:id/annulation', async ({ params, request }) => {
     const { motif, version } = (await request.json()) as { motif: string; version: string };

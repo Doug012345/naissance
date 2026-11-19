@@ -10,6 +10,10 @@ public interface INaissanceRepository
     Task<Naissance?> ObtenirAsync(Guid id, CancellationToken ct);
 
     /// <summary>Indique la version que le client avait affichée (concurrence optimiste).</summary>
+    /// <summary>Nombre de copies du certificat déjà délivrées pour cette naissance.</summary>
+    Task<int> CompterDelivrancesAsync(Guid naissanceId, CancellationToken ct);
+    void AjouterDelivrance(DelivranceCertificat delivrance);
+
     void DefinirVersionAttendue(Naissance naissance, byte[] version);
 
     /// <exception cref="ConcurrenceException">Si quelqu'un a modifié l'enregistrement entre-temps.</exception>
@@ -21,6 +25,9 @@ public interface ILectureNaissances
 {
     Task<PageResultat<NaissanceResumeDto>> RechercherAsync(RechercheNaissances requete, CancellationToken ct);
     Task<NaissanceDetailDto?> ObtenirDetailAsync(Guid id, CancellationToken ct);
+
+    /// <param name="code">Code déjà normalisé (voir CodeVerification.Normaliser).</param>
+    Task<VerificationDto?> VerifierAsync(string code, CancellationToken ct);
 }
 
 /// <summary>Numéro d'acte unique : N-2026-000123 (séquence SQL Server).</summary>

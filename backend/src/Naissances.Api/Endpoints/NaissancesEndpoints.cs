@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Naissances.Application.Abstractions;
 using Naissances.Application.Naissances;
 using Naissances.Domain.Naissances;
@@ -10,6 +11,7 @@ namespace Naissances.Api.Endpoints;
 ///   GET  /api/naissances/{id}
 ///   POST /api/naissances                    -> 201 + Location
 ///   POST /api/naissances/{id}/annulation    -> 204 (409 si version périmée)
+///   POST /api/naissances/{id}/delivrances   -> 201 (copie n° X du certificat, journalisée)
 /// </summary>
 public static class NaissancesEndpoints
 {
@@ -41,6 +43,15 @@ public static class NaissancesEndpoints
         {
             await casUtilisation.ExecuterAsync(id, cmd, ct);
             return TypedResults.NoContent();
+        });
+
+        // Appelé juste avant l'impression : journalise la copie et renvoie son numéro.
+        g.MapPost("/{id:guid}/delivrances", async (Guid id, ClaimsPrincipal user,
+                                                   DelivrerCertificat casUtilisation, CancellationToken ct) =>
+        {
+            var agent = user.FindFirstValue(ClaimTypes.Email) ?? user.Identity?.Name ?? "inconnu";
+            var dto = await casUtilisation.ExecuterAsync(id, agent, ct);
+            return TypedResults.Created($"/api/naissances/{id}/delivrances/{dto.NumeroCopie}", dto);
         });
 
         return g;

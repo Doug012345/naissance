@@ -48,6 +48,21 @@ export function useNaissance(id: string) {
   return useQuery(detailNaissanceQuery(id));
 }
 
+/** Journalise une copie du certificat juste avant l'impression (renvoie le n° de copie). */
+export function useDelivrerCertificat() {
+  return useMutation({ mutationFn: (id: string) => naissancesApi.delivrer(id) });
+}
+
+/** Page publique : vérifie un code de certificat (pas de cache partagé avec l'espace connecté). */
+export function useVerification(code: string) {
+  return useQuery({
+    queryKey: ['verification', code],
+    queryFn: ({ signal }) => naissancesApi.verifier(code, signal),
+    enabled: code.length > 0,
+    retry: false,
+  });
+}
+
 export function useEnregistrerNaissance() {
   const qc = useQueryClient();
   return useMutation({

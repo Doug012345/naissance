@@ -15,6 +15,7 @@ async function remplirFormulaireValide(user: ReturnType<typeof userEvent.setup>)
   await user.type(screen.getByLabelText(/Taille/), '50.5');
   await user.type(screen.getByLabelText(/Établissement/), 'CHU Sainte-Justine');
   await user.type(screen.getByLabelText(/Ville/), 'Montréal');
+  await user.type(screen.getByLabelText(/^Commune/), 'Montréal');
   await user.type(screen.getByLabelText(/Prénom de la mère/), 'Marie');
   await user.type(screen.getByLabelText(/Nom de la mère/), 'Tremblay');
   await user.type(screen.getByLabelText(/Date de naissance de la mère/), '1994-03-02');
@@ -48,6 +49,7 @@ describe('<NaissanceForm />', () => {
       expect.objectContaining({
         prenom: 'Léa',
         sexe: 'Feminin',
+        commune: 'Montréal',
         poidsGrammes: 3400,
         tailleCm: 50.5,
         secondParent: null,

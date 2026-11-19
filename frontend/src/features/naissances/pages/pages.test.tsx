@@ -103,6 +103,8 @@ describe('Création', () => {
           dateHeureNaissance: new Date().toISOString(),
           etablissement: 'CHUM',
           ville: 'Montréal',
+          commune: 'Montréal',
+          codeVerification: 'Q2W3E4R5',
           poidsGrammes: 3100,
           tailleCm: 49,
           mere: { prenom: 'Anne', nom: 'ROY', dateNaissance: '1992-05-05' },
@@ -130,6 +132,7 @@ describe('Création', () => {
     await user.type(screen.getByLabelText(/Taille/), '49');
     await user.type(screen.getByLabelText(/Établissement/), 'CHUM');
     await user.type(screen.getByLabelText(/Ville/), 'Montréal');
+    await user.type(screen.getByLabelText(/^Commune/), 'Montréal');
     await user.type(screen.getByLabelText(/Prénom de la mère/), 'Anne');
     await user.type(screen.getByLabelText(/Nom de la mère/), 'Roy');
     await user.type(screen.getByLabelText(/Date de naissance de la mère/), '1992-05-05');

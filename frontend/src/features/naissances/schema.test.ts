@@ -11,6 +11,7 @@ const valide: NaissanceFormInput = {
   dateHeureNaissance: '2026-11-18T08:30',
   etablissement: 'CHU Sainte-Justine',
   ville: 'Montréal',
+  commune: 'Montréal',
   poidsGrammes: 3400,
   tailleCm: 50.5,
   mere: { prenom: 'Marie', nom: 'Tremblay', dateNaissance: '1994-03-02' },

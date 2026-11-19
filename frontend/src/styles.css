@@ -114,3 +114,61 @@ input[type='radio'], input[type='checkbox'] { width: auto; }
   border-radius: 50%; animation: tourne 0.8s linear infinite; }
 @keyframes tourne { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+
+/* ───────── Certificat de naissance (papier : couleurs fixes, même en mode sombre) ───────── */
+.barre-certificat { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+
+.certificat { --encre: #1d3a7a; --papier: #fffdf7; --trait: #c9d3e8;
+  position: relative; overflow: hidden; max-width: 210mm; margin: 0 auto; padding: 14mm 14mm 10mm;
+  background: var(--papier); color: #1b1b1b; border: 3px double var(--encre); border-radius: 4px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15); font-family: Georgia, 'Times New Roman', serif; }
+.certificat > *:not(.certificat__fond, .certificat__filigrane) { position: relative; }
+.certificat__fond { position: absolute; inset: 0; width: 100%; height: 100%; color: var(--trait); opacity: 0.55; pointer-events: none; }
+.certificat__micro { margin: 0; font-size: 4.5px; line-height: 1; letter-spacing: 0.3px; color: var(--encre);
+  white-space: nowrap; overflow: hidden; font-family: Arial, sans-serif; }
+.certificat__entete { text-align: center; margin: 10px 0 18px; }
+.certificat__commune { margin: 0; font-size: 1.35rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--encre); }
+.certificat__service { margin: 2px 0 10px; font-style: italic; color: #444; }
+.certificat__titre { margin: 0; font-size: 1.9rem; letter-spacing: 3px; text-transform: uppercase; color: var(--encre);
+  border-top: 1px solid var(--encre); border-bottom: 1px solid var(--encre); padding: 6px 0; }
+.certificat__acte { margin: 8px 0 0; font-weight: 700; }
+.certificat__donnees { display: grid; grid-template-columns: max-content 1fr; gap: 9px 20px; margin: 0 0 16px; }
+.certificat__donnees dt { font-weight: 700; color: var(--encre); }
+.certificat__donnees dd { margin: 0; border-bottom: 1px dotted #999; }
+.certificat__mention { font-style: italic; text-align: center; margin: 18px 0; }
+.certificat__pied { display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: end; margin-bottom: 10px; }
+.certificat__sceau { color: var(--encre); transform: rotate(-8deg); opacity: 0.9; }
+.certificat__signature { text-align: center; }
+.certificat__signature p { margin: 2px 0; }
+.certificat__copie { font-weight: 700; }
+.certificat__ligne-signature { border-bottom: 1px solid #333; margin: 34px 12% 4px; }
+.certificat__agent { font-size: 0.75rem; color: #555; overflow-wrap: anywhere; }
+.certificat__qr { text-align: center; font-family: Arial, sans-serif; }
+.certificat__qr p { margin: 4px 0 0; font-size: 0.75rem; }
+.certificat__code strong { font-family: 'Courier New', monospace; font-size: 0.95rem; letter-spacing: 1px; }
+.certificat__filigrane { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-30deg);
+  font: 700 7rem/1 Arial, sans-serif; letter-spacing: 12px; color: rgba(179, 38, 30, 0.28);
+  border: 10px solid rgba(179, 38, 30, 0.28); padding: 8px 24px; pointer-events: none; white-space: nowrap; }
+
+@media (max-width: 640px) {
+  .certificat { padding: 16px; }
+  .certificat__donnees { grid-template-columns: 1fr; gap: 2px; }
+  .certificat__donnees dd { margin-bottom: 8px; }
+  .certificat__pied { grid-template-columns: 1fr; justify-items: center; }
+  .certificat__filigrane { font-size: 3.5rem; }
+}
+
+@media print {
+  @page { size: A4; margin: 10mm; }
+  :root, body, .contenu { background: #fff; }
+  .entete, .lien-evitement, .ne-pas-imprimer { display: none !important; }
+  .contenu { max-width: none; padding: 0; }
+  /* Le certificat remplit toute la feuille A4 (297 mm − 2 × 10 mm de marge) ; le pied reste en bas. */
+  .certificat { box-shadow: none; max-width: none; break-inside: avoid; box-sizing: border-box;
+    height: 276mm; display: flex; flex-direction: column;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .certificat__entete { margin: 16mm 0 12mm; }
+  .certificat__donnees { gap: 16px 24px; font-size: 1.05rem; }
+  .certificat__mention { margin-top: auto; }
+  .certificat__pied { margin-top: 8mm; }
+}
