@@ -2,9 +2,12 @@ import { Suspense } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { QueryErrorResetBoundary } from '@tanstack/react-query';
 import { ErrorBoundary } from './ErrorBoundary';
+import { useDeconnexion, useSession } from '../features/auth/hooks';
 
 export function Layout() {
   const { pathname } = useLocation();
+  const { data: utilisateur } = useSession();
+  const deconnexion = useDeconnexion();
 
   return (
     <>
@@ -19,6 +22,18 @@ export function Layout() {
           </NavLink>
           <NavLink to="/naissances/nouvelle">Nouvelle déclaration</NavLink>
         </nav>
+        <div className="entete__compte">
+          <span className="entete__utilisateur">{utilisateur?.courriel}</span>
+          <NavLink to="/compte/mot-de-passe">Mot de passe</NavLink>
+          <button
+            type="button"
+            className="bouton-lien"
+            onClick={() => deconnexion.mutate()}
+            disabled={deconnexion.isPending}
+          >
+            Se déconnecter
+          </button>
+        </div>
       </header>
 
       <main id="contenu" className="contenu">

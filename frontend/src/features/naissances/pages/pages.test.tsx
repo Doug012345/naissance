@@ -8,7 +8,8 @@ describe('Liste des naissances', () => {
   it('affiche les naissances renvoyées par l’API', async () => {
     renderApp('/naissances');
 
-    expect(screen.getByText(/Chargement des naissances/)).toBeInTheDocument();
+    // (la session est d'abord vérifiée, d'où findBy)
+    expect(await screen.findByText(/Chargement des naissances/)).toBeInTheDocument();
     const tableau = await screen.findByRole('table');
     expect(within(tableau).getByText('Léa TREMBLAY')).toBeInTheDocument();
     expect(within(tableau).getByText('Noah GAGNON')).toBeInTheDocument();

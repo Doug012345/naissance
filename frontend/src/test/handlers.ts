@@ -59,7 +59,40 @@ const resume = (n: NaissanceDetail): NaissanceResume => ({
   statut: n.statut,
 });
 
+export const utilisateurTest = { courriel: 'agent@exemple.ca' };
+export const MOT_DE_PASSE_TEST = 'Ancien-MotDePasse1';
+
 export const handlers = [
+  // Par défaut l'utilisateur est connecté ; les tests d'auth surchargent avec server.use().
+  http.get('/api/auth/moi', () => HttpResponse.json(utilisateurTest)),
+
+  http.post('/api/auth/connexion', async ({ request }) => {
+    const { courriel, motDePasse } = (await request.json()) as { courriel: string; motDePasse: string };
+    return courriel === utilisateurTest.courriel && motDePasse === MOT_DE_PASSE_TEST
+      ? HttpResponse.json(utilisateurTest)
+      : HttpResponse.json(
+          { status: 401, title: 'Connexion refusée', detail: 'Courriel ou mot de passe invalide.' },
+          { status: 401 },
+        );
+  }),
+
+  http.post('/api/auth/deconnexion', () => new HttpResponse(null, { status: 204 })),
+
+  http.post('/api/auth/mot-de-passe', async ({ request }) => {
+    const { motDePasseActuel } = (await request.json()) as { motDePasseActuel: string };
+    if (motDePasseActuel !== MOT_DE_PASSE_TEST) {
+      return HttpResponse.json(
+        {
+          status: 422,
+          title: 'Mot de passe non modifié',
+          errors: { motDePasseActuel: ['Le mot de passe actuel est incorrect.'] },
+        },
+        { status: 422 },
+      );
+    }
+    return new HttpResponse(null, { status: 204 });
+  }),
+
   http.get('/api/naissances', ({ request }) => {
     const url = new URL(request.url);
     const q = (url.searchParams.get('recherche') ?? '').toLowerCase();

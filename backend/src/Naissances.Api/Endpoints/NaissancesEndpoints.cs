@@ -15,7 +15,8 @@ public static class NaissancesEndpoints
 {
     public static RouteGroupBuilder MapNaissances(this IEndpointRouteBuilder app)
     {
-        var g = app.MapGroup("/api/naissances").WithTags("Naissances");
+        // Toutes les routes exigent un utilisateur connecté (sinon 401).
+        var g = app.MapGroup("/api/naissances").WithTags("Naissances").RequireAuthorization();
 
         g.MapGet("/", async (string? recherche, StatutNaissance? statut, int? page, int? taille,
                              ILectureNaissances lecture, CancellationToken ct) =>
