@@ -4,6 +4,8 @@ Exemple complet en **Clean Architecture**, avec l'accent sur le **frontend React
 
 ```
 naissances/
+├── azure-pipelines.yml              CI/CD Azure DevOps (voir « CI/CD »)
+├── pipelines/                       modèle d'installation Terraform + script plan/apply du pipeline
 ├── infra/                           Terraform : tout l'hébergement Azure (voir « Déploiement Azure »)
 ├── docker-compose.yml               SQL Server + API + site, en une commande
 ├── .env.example                     modèle des secrets locaux (copier en .env)
@@ -120,7 +122,11 @@ Choix :
   ses images par identité. Le compte de connexion existe déjà dans la base (créé en dev).
 * **API interne** : seul nginx (le site) peut l'appeler ; même origine → cookie `SameSite=Strict` inchangé.
 * **`min_replicas = 0`** : les conteneurs s'éteignent sans visiteurs (1er appel un peu plus lent).
-* État Terraform **local** (`infra/terraform.tfstate`, ignoré par Git) ; il passera dans un stockage Azure à l'étape CI/CD.
+* État Terraform **partagé dans Azure** : `rg-naissances-tfstate` / `stnaissancestfstate` / conteneur `tfstate` /
+  `naissances.tfstate`. Accès Entra ID seulement (clés désactivées), verrou automatique, versions + corbeille 14 j.
+  Il faut le rôle **Storage Blob Data Contributor** sur ce compte pour lancer Terraform.
+* `resource_provider_registrations = "none"` : Terraform ne touche pas à l'abonnement, le pipeline n'a de droits
+  que sur `rg-naissances`.
 
 ### Procédure (première fois)
 
@@ -146,6 +152,42 @@ docker push acrnaissancesdoudou.azurecr.io/naissances-web:v1
 terraform apply
 terraform output     # adresse Azure du site + CNAME et TXT pour GoDaddy
 ```
+
+---
+
+## CI/CD — Azure DevOps
+
+Projet : **https://dev.azure.com/DougMbo/AppNaissance** — le code reste sur GitHub, Azure Pipelines l'exécute.
+
+```
+Pull Request ──▶ CI ──▶ ✅/❌ affiché sur la PR GitHub
+Fusion main  ──▶ CI ──▶ Images (push ACR, tag b<numéro>) ──▶ Plan Terraform ──▶ ⏸ approbation ──▶ Production
+```
+
+| Étape | Contenu |
+|---|---|
+| **CI** | .NET : build `-warnaserror`, tests (résultats publiés), **échec si package NuGet vulnérable** · React : `npm ci`, typecheck, Vitest (JUnit publié), build · PR : build des 2 images Docker sans publication |
+| **Images** | `main` seulement : build + push `naissances-api` / `naissances-web:b<BuildId>` dans `acrnaissancesdoudou` |
+| **Plan** | `terraform plan` avec la nouvelle version ; le plan est conservé comme artefact |
+| **Production** | environnement **`production` avec approbation** → `terraform apply` du plan approuvé (exactement celui-là), puis test de https://naissance.anmbo.ca (site 200, API 401) |
+
+* **Aucun secret** : connexion de service `sc-naissances-azure` en *Workload Identity Federation* (jeton OIDC
+  court transmis à Terraform via `ARM_USE_OIDC`). Les variables Terraform (abonnement, admin SQL) sont lues
+  dans Azure par [pipelines/terraform.sh](pipelines/terraform.sh).
+* Droits de la connexion : **Contributor sur `rg-naissances`** + **Storage Blob Data Contributor** sur l'état Terraform.
+* Terraform est installé en **version fixe** (1.15.8) et les fournisseurs sont figés par `.terraform.lock.hcl`.
+
+### Mise en place (une seule fois)
+
+1. **Connexion de service** : Project settings → Service connections → New → *Azure Resource Manager* →
+   *Workload Identity federation (automatic)* → abonnement « Doudou Mbombo », groupe **`rg-naissances`**,
+   nom **`sc-naissances-azure`**.
+2. Donner l'accès à l'état Terraform à cette connexion (Azure CLI, `Storage Blob Data Contributor` sur
+   `stnaissancestfstate`).
+3. **Environnement** : Pipelines → Environments → New → `production` → *Approvals and checks* → *Approvals* → vous.
+4. **Pipeline** : Pipelines → New pipeline → GitHub (YAML) → `Doug012345/naissance` →
+   *Existing Azure Pipelines YAML file* → `/azure-pipelines.yml`.
+5. **GitHub** : Settings → Branches → règle sur `main` → *Require status checks to pass* → le check Azure Pipelines.
 
 ### Dépannage
 
@@ -321,9 +363,5 @@ Si l'URL change de l'extérieur (Précédent), la saisie est resynchronisée par
 * Rôles (agent / superviseur) et écran d'administration des comptes ; à terme, Entra ID + MSAL React.
 * Mot de passe oublié (lien par courriel), authentification à deux facteurs.
 * Tests d'intégration API avec `WebApplicationFactory` + Testcontainers SQL Server.
-* **À venir** : CI/CD GitHub Actions (`dotnet test`, `npm test`, build et push des images Docker,
-  déploiement) et état Terraform dans un stockage Azure.
 * Key Vault le jour où un secret sera nécessaire (aujourd'hui : aucun, tout passe par identité managée).
-* Mettre à jour `Microsoft.EntityFrameworkCore.Design` : sa dépendance d'outillage
-  `System.Security.Cryptography.Xml` 9.0.0 a une faille connue (avertissement NU1903). Elle n'est pas
-  embarquée dans l'image Docker.
+* Tests d'intégration de l'API dans le pipeline (SQL Server en conteneur de service).

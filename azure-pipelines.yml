@@ -1,0 +1,212 @@
+# Pipeline CI/CD — Azure DevOps (https://dev.azure.com/DougMbo/AppNaissance)
+# Code sur GitHub (Doug012345/naissance), exécution sur Azure Pipelines.
+#
+#   Pull Request ──▶ CI (tests + build + images Docker non poussées) ──▶ ✅/❌ sur GitHub
+#   Fusion main  ──▶ CI ──▶ Images (push ACR) ──▶ Plan (terraform plan) ──▶ ⏸ APPROBATION ──▶ Production
+#
+# Aucun secret dans ce fichier ni dans Azure DevOps : la connexion à Azure passe par
+# « Workload Identity Federation » (jeton OIDC à durée courte, pas de mot de passe).
+
+trigger:
+  branches:
+    include: [main]
+  paths:
+    exclude: ['*.md']
+
+pr:
+  branches:
+    include: [main]
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  serviceConnection: sc-naissances-azure # connexion de service Azure (Workload Identity Federation)
+  acrName: acrnaissancesdoudou
+  acrServer: acrnaissancesdoudou.azurecr.io
+  imageTag: b$(Build.BuildId) # une version unique et traçable par exécution
+  terraformVersion: 1.15.8
+  siteUrl: https://naissance.anmbo.ca
+
+stages:
+  # ───────────────────────────── 1. CI ─────────────────────────────
+  - stage: CI
+    displayName: Vérifier (tests et build)
+    jobs:
+      - job: Backend
+        displayName: Backend .NET
+        steps:
+          - task: UseDotNet@2
+            displayName: SDK .NET 10
+            inputs:
+              packageType: sdk
+              version: 10.0.x
+
+          - script: dotnet restore backend/Naissances.slnx
+            displayName: Restaurer les packages
+
+          - script: dotnet build backend/Naissances.slnx -c Release --no-restore -warnaserror
+            displayName: Compiler (avertissements = erreurs)
+
+          - script: >
+              dotnet test backend/Naissances.slnx -c Release --no-build
+              --logger "trx;LogFileName=backend.trx"
+              --results-directory $(Agent.TempDirectory)/tests
+            displayName: Tests
+
+          - task: PublishTestResults@2
+            displayName: Publier les résultats de tests
+            condition: succeededOrFailed()
+            inputs:
+              testResultsFormat: VSTest
+              testResultsFiles: $(Agent.TempDirectory)/tests/*.trx
+              testRunTitle: Backend
+
+          - script: |
+              dotnet list backend/Naissances.slnx package --vulnerable --include-transitive | tee vuln.txt
+              if grep -qE '^\s+>' vuln.txt; then
+                echo "##vso[task.logissue type=error]Des packages NuGet vulnérables ont été trouvés."
+                exit 1
+              fi
+            displayName: Packages vulnérables ?
+
+      - job: Frontend
+        displayName: Frontend React
+        steps:
+          - task: NodeTool@0
+            displayName: Node 22
+            inputs:
+              versionSpec: 22.x
+
+          - script: npm ci
+            workingDirectory: frontend
+            displayName: Installer les dépendances
+
+          - script: npm run typecheck
+            workingDirectory: frontend
+            displayName: Vérifier les types TypeScript
+
+          - script: npx vitest run --reporter=default --reporter=junit --outputFile.junit=$(Agent.TempDirectory)/tests/frontend.xml
+            workingDirectory: frontend
+            displayName: Tests
+
+          - task: PublishTestResults@2
+            displayName: Publier les résultats de tests
+            condition: succeededOrFailed()
+            inputs:
+              testResultsFormat: JUnit
+              testResultsFiles: $(Agent.TempDirectory)/tests/frontend.xml
+              testRunTitle: Frontend
+
+          - script: npm run build
+            workingDirectory: frontend
+            displayName: Build de production
+
+      # Sur une Pull Request : on vérifie que les images se construisent, sans les publier.
+      - job: Docker
+        displayName: Images Docker (sans publication)
+        condition: ne(variables['Build.SourceBranch'], 'refs/heads/main')
+        steps:
+          - script: docker build -t naissances-api:pr ./backend
+            displayName: Image API
+          - script: docker build -t naissances-web:pr ./frontend
+            displayName: Image site
+
+  # ───────────────────────────── 2. Images ─────────────────────────────
+  - stage: Images
+    displayName: Publier les images
+    dependsOn: CI
+    # Seulement après une fusion dans main (jamais pour une Pull Request).
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ne(variables['Build.Reason'], 'PullRequest'))
+    jobs:
+      - job: Push
+        displayName: Build et push vers ACR
+        steps:
+          - task: AzureCLI@2
+            displayName: Construire et pousser $(imageTag)
+            inputs:
+              azureSubscription: $(serviceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+                az acr login -n $(acrName)
+                for app in api web; do
+                  dossier=$([ "$app" = api ] && echo backend || echo frontend)
+                  docker build -t $(acrServer)/naissances-$app:$(imageTag) ./$dossier
+                  docker push $(acrServer)/naissances-$app:$(imageTag)
+                done
+
+  # ───────────────────────────── 3. Plan ─────────────────────────────
+  - stage: Plan
+    displayName: Plan Terraform
+    dependsOn: Images
+    condition: succeeded()
+    jobs:
+      - job: Plan
+        displayName: terraform plan
+        steps:
+          - template: pipelines/terraform-preparer.yml
+            parameters:
+              terraformVersion: $(terraformVersion)
+
+          - task: AzureCLI@2
+            displayName: terraform plan (image $(imageTag))
+            inputs:
+              azureSubscription: $(serviceConnection)
+              scriptType: bash
+              scriptLocation: scriptPath
+              scriptPath: pipelines/terraform.sh
+              arguments: plan $(imageTag)
+              addSpnToEnvironment: true
+
+          - publish: infra/tfplan
+            artifact: tfplan
+            displayName: Conserver le plan pour l'approbation
+
+  # ───────────────────────────── 4. Production ─────────────────────────────
+  - stage: Production
+    displayName: Déployer en production
+    dependsOn: Plan
+    condition: succeeded()
+    jobs:
+      - deployment: Production
+        displayName: terraform apply + vérification
+        # L'environnement « production » porte l'approbation (Azure DevOps > Environments > Approvals).
+        environment: production
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+
+                - download: current
+                  artifact: tfplan
+
+                - template: pipelines/terraform-preparer.yml
+                  parameters:
+                    terraformVersion: $(terraformVersion)
+
+                - task: AzureCLI@2
+                  displayName: terraform apply (plan approuvé)
+                  inputs:
+                    azureSubscription: $(serviceConnection)
+                    scriptType: bash
+                    scriptLocation: scriptPath
+                    scriptPath: pipelines/terraform.sh
+                    arguments: apply $(imageTag) $(Pipeline.Workspace)/tfplan/tfplan
+                    addSpnToEnvironment: true
+
+                - script: |
+                    set -u
+                    # Les conteneurs peuvent être à 0 réplica : on laisse le temps au réveil.
+                    for i in $(seq 1 20); do
+                      site=$(curl -s -o /dev/null -m 60 -w '%{http_code}' $(siteUrl)/connexion || true)
+                      api=$(curl -s -o /dev/null -m 60 -w '%{http_code}' $(siteUrl)/api/auth/moi || true)
+                      echo "essai $i : site=$site api=$api"
+                      if [ "$site" = 200 ] && [ "$api" = 401 ]; then echo "Site et API OK"; exit 0; fi
+                      sleep 15
+                    done
+                    echo "##vso[task.logissue type=error]$(siteUrl) ne répond pas correctement après le déploiement."
+                    exit 1
+                  displayName: Vérifier $(siteUrl)

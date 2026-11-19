@@ -1,0 +1,13 @@
+# Installe une version FIXE de Terraform (la même que sur votre poste) pour des plans reproductibles.
+parameters:
+  - name: terraformVersion
+    type: string
+
+steps:
+  - script: |
+      set -euo pipefail
+      v=${{ parameters.terraformVersion }}
+      curl -sSfLo /tmp/tf.zip "https://releases.hashicorp.com/terraform/${v}/terraform_${v}_linux_amd64.zip"
+      sudo unzip -o -q /tmp/tf.zip -d /usr/local/bin
+      terraform version
+    displayName: Installer Terraform ${{ parameters.terraformVersion }}
