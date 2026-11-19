@@ -16,14 +16,12 @@ builder.Services.AddScoped<AnnulerNaissance>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AjouterAuthentification(builder.Configuration, builder.Environment);
 
-// Clés qui chiffrent le cookie de connexion. Dans un conteneur, le disque est jetable :
-// sans dossier persistant, chaque redémarrage déconnecterait tout le monde.
-if (builder.Configuration["DataProtection:Dossier"] is { Length: > 0 } dossierCles)
-{
-    builder.Services.AddDataProtection()
-        .SetApplicationName("naissances")
-        .PersistKeysToFileSystem(new DirectoryInfo(dossierCles));
-}
+// Clés qui chiffrent le cookie de connexion, rangées dans la base SQL (table DataProtectionKeys).
+// Un conteneur a un disque jetable et Azure peut l'éteindre (0 réplica) ou en lancer plusieurs :
+// sans clés partagées et persistantes, chaque redémarrage déconnecterait tout le monde.
+builder.Services.AddDataProtection()
+    .SetApplicationName("naissances")
+    .PersistKeysToDbContext<NaissancesDbContext>();
 
 // Enums en texte ("Feminin") : plus lisible côté React que 1/2/3.
 builder.Services.ConfigureHttpJsonOptions(o =>

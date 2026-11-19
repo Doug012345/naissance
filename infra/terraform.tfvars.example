@@ -1,0 +1,10 @@
+# Copiez en « terraform.tfvars » (ignoré par Git) et complétez.
+#   az account show --query id -o tsv              → subscription_id
+#   az ad signed-in-user show --query id -o tsv    → sql_admin_object_id
+
+subscription_id     = "00000000-0000-0000-0000-000000000000"
+sql_admin_login     = "libelle-administrateur-sql"
+sql_admin_object_id = "00000000-0000-0000-0000-000000000000"
+
+# Vide au 1er apply. Puis la version des images poussées dans le registre, ex. "v1".
+image_tag = ""
