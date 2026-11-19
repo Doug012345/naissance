@@ -1,0 +1,59 @@
+# Toute l'application en local, avec UNE commande :   docker compose up --build
+# Puis ouvrir http://localhost:8080
+#
+#   navigateur ──▶ web (nginx :8080) ──/api──▶ api (.NET :8080) ──▶ sql (SQL Server :1433)
+#
+# Les secrets viennent du fichier .env (copie de .env.example, jamais commité).
+# Cette base SQL est LOCALE (conteneur) : elle est indépendante de votre Azure SQL.
+
+name: naissances
+
+services:
+  sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Définissez MSSQL_SA_PASSWORD dans .env}
+    ports:
+      - "14333:1433" # SSMS : serveur « localhost,14333 », utilisateur sa
+    volumes:
+      - sql-donnees:/var/opt/mssql # les naissances survivent à un « docker compose down »
+    healthcheck:
+      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$${MSSQL_SA_PASSWORD}" -C -b -Q "SELECT 1"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  api:
+    build: ./backend
+    image: naissances-api:local
+    environment:
+      ConnectionStrings__Naissances: "Server=sql,1433;Database=EtatCivil;User Id=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=True;TrustServerCertificate=True"
+      Demarrage__AppliquerMigrations: "true"
+      CompteInitial__Courriel: ${COMPTE_COURRIEL:?Définissez COMPTE_COURRIEL dans .env}
+      CompteInitial__MotDePasse: ${COMPTE_MOT_DE_PASSE:?Définissez COMPTE_MOT_DE_PASSE dans .env}
+      # Local en http : le cookie ne peut pas exiger HTTPS. En Azure, il reste obligatoire.
+      Authentification__CookieHttpsObligatoire: "false"
+    volumes:
+      - cles-api:/cles # clés du cookie : on reste connecté après un redémarrage
+    depends_on:
+      sql:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build: ./frontend
+    image: naissances-web:local
+    environment:
+      API_URL: http://api:8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  sql-donnees:
+  cles-api:

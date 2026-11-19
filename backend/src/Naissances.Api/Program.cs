@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Naissances.Api;
 using Naissances.Api.Endpoints;
@@ -13,7 +14,16 @@ builder.Services.AjouterInfrastructure(builder.Configuration);
 builder.Services.AddScoped<EnregistrerNaissance>();
 builder.Services.AddScoped<AnnulerNaissance>();
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AjouterAuthentification(builder.Environment);
+builder.Services.AjouterAuthentification(builder.Configuration, builder.Environment);
+
+// Clés qui chiffrent le cookie de connexion. Dans un conteneur, le disque est jetable :
+// sans dossier persistant, chaque redémarrage déconnecterait tout le monde.
+if (builder.Configuration["DataProtection:Dossier"] is { Length: > 0 } dossierCles)
+{
+    builder.Services.AddDataProtection()
+        .SetApplicationName("naissances")
+        .PersistKeysToFileSystem(new DirectoryInfo(dossierCles));
+}
 
 // Enums en texte ("Feminin") : plus lisible côté React que 1/2/3.
 builder.Services.ConfigureHttpJsonOptions(o =>
@@ -30,8 +40,12 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 if (app.Environment.IsDevelopment())
-{
     app.MapOpenApi(); // /openapi/v1.json
+
+// Migrations + compte initial au démarrage : toujours en dev, et ailleurs (Docker, Azure)
+// seulement si Demarrage:AppliquerMigrations=true.
+if (app.Configuration.GetValue("Demarrage:AppliquerMigrations", app.Environment.IsDevelopment()))
+{
     using (var scope = app.Services.CreateScope())
         await scope.ServiceProvider.GetRequiredService<NaissancesDbContext>().Database.MigrateAsync();
     await app.Services.CreerCompteInitialAsync(app.Configuration, app.Logger);

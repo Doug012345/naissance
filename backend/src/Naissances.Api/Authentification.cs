@@ -13,8 +13,13 @@ namespace Naissances.Api;
 /// </summary>
 internal static class Authentification
 {
-    public static IServiceCollection AjouterAuthentification(this IServiceCollection services, IHostEnvironment env)
+    public static IServiceCollection AjouterAuthentification(
+        this IServiceCollection services, IConfiguration config, IHostEnvironment env)
     {
+        // Cookie « Secure » (envoyé seulement en HTTPS) : obligatoire en production.
+        // Désactivable pour docker compose en local (http://localhost:8080).
+        var httpsObligatoire = config.GetValue("Authentification:CookieHttpsObligatoire", !env.IsDevelopment());
+
         services.AddAuthentication(IdentityConstants.ApplicationScheme).AddIdentityCookies();
         services.AddAuthorization();
 
@@ -39,9 +44,9 @@ internal static class Authentification
             o.Cookie.Name = "naissances.auth";
             o.Cookie.HttpOnly = true;
             o.Cookie.SameSite = SameSiteMode.Strict;
-            o.Cookie.SecurePolicy = env.IsDevelopment()
-                ? CookieSecurePolicy.SameAsRequest
-                : CookieSecurePolicy.Always;
+            o.Cookie.SecurePolicy = httpsObligatoire
+                ? CookieSecurePolicy.Always
+                : CookieSecurePolicy.SameAsRequest;
             o.ExpireTimeSpan = TimeSpan.FromHours(8);
             o.SlidingExpiration = true;
             o.Events = new CookieAuthenticationEvents
