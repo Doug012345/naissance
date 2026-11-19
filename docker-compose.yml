@@ -36,8 +36,6 @@ services:
       CompteInitial__MotDePasse: ${COMPTE_MOT_DE_PASSE:?Définissez COMPTE_MOT_DE_PASSE dans .env}
       # Local en http : le cookie ne peut pas exiger HTTPS. En Azure, il reste obligatoire.
       Authentification__CookieHttpsObligatoire: "false"
-    volumes:
-      - cles-api:/cles # clés du cookie : on reste connecté après un redémarrage
     depends_on:
       sql:
         condition: service_healthy
@@ -56,4 +54,3 @@ services:
 
 volumes:
   sql-donnees:
-  cles-api:

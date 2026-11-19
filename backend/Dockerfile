@@ -23,14 +23,10 @@ WORKDIR /app
 
 ENV ASPNETCORE_HTTP_PORTS=8080 \
     # Derrière nginx / Azure : lire X-Forwarded-Proto (https) et X-Forwarded-For (IP réelle).
-    ASPNETCORE_FORWARDEDHEADERS_ENABLED=true \
-    DataProtection__Dossier=/cles
+    ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
 
 COPY --from=build /app .
 
-# Dossier des clés du cookie (monté en volume par docker compose), appartenant à l'utilisateur non-root.
-USER root
-RUN mkdir -p /cles && chown $APP_UID /cles
 # Jamais root en production : utilisateur « app » fourni par l'image Microsoft.
 USER $APP_UID
 

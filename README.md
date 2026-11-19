@@ -4,6 +4,7 @@ Exemple complet en **Clean Architecture**, avec l'accent sur le **frontend React
 
 ```
 naissances/
+├── infra/                           Terraform : tout l'hébergement Azure (voir « Déploiement Azure »)
 ├── docker-compose.yml               SQL Server + API + site, en une commande
 ├── .env.example                     modèle des secrets locaux (copier en .env)
 ├── backend/                         (.NET 10 — Visual Studio / Rider)
@@ -82,12 +83,98 @@ navigateur ──▶ web (nginx :8080) ──/api──▶ api (.NET :8080) ─�
 | Utilisateurs **non-root** (`$APP_UID`, `nginx-unprivileged`) | Un conteneur compromis n'a pas les droits root |
 | **nginx relaie `/api`** | Site et API sur la même origine : pas de CORS, cookie `SameSite=Strict` inchangé (comme le proxy Vite) |
 | `ASPNETCORE_FORWARDEDHEADERS_ENABLED` | Derrière nginx / Azure, l'API voit le vrai schéma (`https`) et la vraie IP |
-| Volume **`cles-api`** (`DataProtection:Dossier`) | Les clés qui chiffrent le cookie survivent au redémarrage : on reste connecté |
+| Clés du cookie **dans la base** (table `DataProtectionKeys`) | Elles survivent aux redémarrages et sont partagées entre conteneurs : on reste connecté |
 | `Demarrage:AppliquerMigrations=true` | Hors dev, migrations + compte initial seulement si on le demande explicitement |
 | `Authentification:CookieHttpsObligatoire=false` | Seulement en local (http). En Azure (https) le cookie reste `Secure` |
 | **SQL Server en conteneur** (`localhost,14333` dans SSMS) | Base locale jetable, indépendante d'Azure SQL ; `healthcheck` → l'API attend qu'elle soit prête |
 
-> La base du `docker compose` est **locale**. Pour Azure, l'API utilisera Azure SQL (étape Terraform).
+> La base du `docker compose` est **locale**. Dans Azure, l'API utilise Azure SQL (voir ci-dessous).
+
+---
+
+## Déploiement Azure (Terraform)
+
+```
+Internet ──▶ ca-naissances-web (nginx, public, naissance.anmbo.ca)
+                  │ /api (interne, HTTPS)
+                  ▼
+             ca-naissances-api (.NET, INTERNE) ──identité managée, sans mot de passe──▶ Azure SQL db-naissances
+                  ▲ images tirées par identité (AcrPull)
+             acrnaissancesdoudou (registre Docker)
+```
+
+| Ressource | Nom | Gestion |
+|---|---|---|
+| Groupe de ressources | `rg-naissances` | **importé** (créé par script) |
+| Serveur + base SQL | `sql-naissances-doudou` / `db-naissances` (S0) | **importés**, `prevent_destroy` |
+| Règle pare-feu | `AllowAllWindowsAzureIps` | créée : les conteneurs n'ont pas d'IP fixe ; sans risque car le serveur n'accepte que Entra ID |
+| Journaux | `log-naissances` | créé (30 jours) |
+| Environnement | `cae-naissances` | créé (Consumption) |
+| Registre d'images | `acrnaissancesdoudou` | créé (Basic, compte admin désactivé) |
+| Identités | `id-naissances-api`, `id-naissances-web` | créées ; seule l'API a accès à la base |
+| Applications | `ca-naissances-api` (interne), `ca-naissances-web` (public) | créées quand `image_tag` est renseigné ; 0 à 2 réplicas |
+
+Choix :
+* **Import** plutôt que recréation : `imports.tf` (blocs `import`, Terraform ≥ 1.5). Le 1er plan n'ajoute que des étiquettes.
+* **Aucun secret** : l'API se connecte à SQL avec `Authentication=Active Directory Managed Identity`, et tire
+  ses images par identité. Le compte de connexion existe déjà dans la base (créé en dev).
+* **API interne** : seul nginx (le site) peut l'appeler ; même origine → cookie `SameSite=Strict` inchangé.
+* **`min_replicas = 0`** : les conteneurs s'éteignent sans visiteurs (1er appel un peu plus lent).
+* État Terraform **local** (`infra/terraform.tfstate`, ignoré par Git) ; il passera dans un stockage Azure à l'étape CI/CD.
+
+### Procédure (première fois)
+
+```bash
+cd infra
+cp terraform.tfvars.example terraform.tfvars   # compléter (abonnement, admin SQL)
+terraform init
+
+# 1) Socle : imports + registre + identités (image_tag vide)
+terraform plan -out=phase1.tfplan && terraform apply phase1.tfplan
+
+# 2) Autoriser l'identité de l'API dans la base (une fois) :
+#    portail Azure > db-naissances > Éditeur de requête (Entra) > exécuter backend/sql/acces-api-azure.sql
+
+# 3) Construire et pousser les images
+az acr login -n acrnaissancesdoudou
+docker build -t acrnaissancesdoudou.azurecr.io/naissances-api:v1 ../backend
+docker build -t acrnaissancesdoudou.azurecr.io/naissances-web:v1 ../frontend
+docker push acrnaissancesdoudou.azurecr.io/naissances-api:v1
+docker push acrnaissancesdoudou.azurecr.io/naissances-web:v1
+
+# 4) Applications : image_tag = "v1" dans terraform.tfvars
+terraform apply
+terraform output     # adresse Azure du site + CNAME et TXT pour GoDaddy
+```
+
+### Dépannage
+
+| Symptôme | Cause / solution |
+|---|---|
+| `/api/...` répond **426 Upgrade Required** | nginx parle HTTP/1.0 par défaut ; la passerelle Azure exige 1.1 → `proxy_http_version 1.1;` (déjà dans `nginx.conf.template`) |
+| `/api/...` répond **504**, journaux : `Login failed for user '<token-identified principal>'` | L'identité de l'API n'existe pas dans **db-naissances** : exécuter `backend/sql/acces-api-azure.sql` sur la **base** (pas sur `master`), puis `az containerapp revision restart` |
+| Lire les journaux de l'API | `az containerapp logs show -g rg-naissances -n ca-naissances-api --tail 50`, ou Log Analytics `log-naissances` → `ContainerAppConsoleLogs_CL` |
+
+### Domaine personnalisé `naissance.anmbo.ca` ✅ en ligne
+
+Site : **https://naissance.anmbo.ca**. Le certificat HTTPS (GeoTrust/DigiCert) est géré et renouvelé
+automatiquement par Azure, et `http://` redirige vers `https://`.
+
+> Azure rattache les applications au profil « Consumption » : `workload_profile_name` est écrit dans
+> `main.tf`, sinon `terraform plan` voudrait le retirer. Le lien du domaine (fait par `az containerapp hostname`)
+> n'est pas géré par Terraform et n'apparaît donc pas dans le plan.
+
+Procédure (déjà faite, à refaire seulement pour un autre domaine) :
+
+1. Chez GoDaddy (DNS de `anmbo.ca`), ajouter les deux enregistrements donnés par `terraform output` :
+   `CNAME naissance → <adresse du site>` et `TXT asuid.naissance → <code de vérification>`.
+   Ne pas toucher aux enregistrements existants.
+2. Après propagation (quelques minutes) : lier le domaine et créer le certificat HTTPS gratuit géré par Azure :
+   ```bash
+   az containerapp hostname add  -g rg-naissances -n ca-naissances-web --hostname naissance.anmbo.ca
+   az containerapp hostname bind -g rg-naissances -n ca-naissances-web --hostname naissance.anmbo.ca \
+     --environment cae-naissances --validation-method CNAME
+   ```
 
 > Réseau CGI/Zscaler : si `npm install` ou `dotnet restore` échoue en SSL, même correctif
 > que pour les labs (certificat racine Zscaler). Ne jamais committer le .crt.
@@ -234,9 +321,9 @@ Si l'URL change de l'extérieur (Précédent), la saisie est resynchronisée par
 * Rôles (agent / superviseur) et écran d'administration des comptes ; à terme, Entra ID + MSAL React.
 * Mot de passe oublié (lien par courriel), authentification à deux facteurs.
 * Tests d'intégration API avec `WebApplicationFactory` + Testcontainers SQL Server.
-* **En cours** : Terraform (Azure Container Apps, Container Registry, Key Vault, import de `rg-naissances`
-  et de la base SQL existante), domaine `naissance.anmbo.ca` avec certificat HTTPS, puis CI/CD GitHub Actions
-  (`dotnet test`, `npm test`, build et push des images Docker, déploiement).
+* **À venir** : CI/CD GitHub Actions (`dotnet test`, `npm test`, build et push des images Docker,
+  déploiement) et état Terraform dans un stockage Azure.
+* Key Vault le jour où un secret sera nécessaire (aujourd'hui : aucun, tout passe par identité managée).
 * Mettre à jour `Microsoft.EntityFrameworkCore.Design` : sa dépendance d'outillage
   `System.Security.Cryptography.Xml` 9.0.0 a une faille connue (avertissement NU1903). Elle n'est pas
   embarquée dans l'image Docker.
