@@ -27,6 +27,17 @@ public sealed record Identite
     }
 
     public string NomComplet => $"{Prenom} {Nom}";
+
+    /// <summary>« Marie-Ève » « TREMBLAY » → « M.-È. T. » (page publique de vérification).</summary>
+    public static string Initiales(string prenom, string nom)
+    {
+        static string DeMot(string mot) =>
+            string.Join("-", mot.Split('-', StringSplitOptions.RemoveEmptyEntries)
+                                .Select(p => char.ToUpperInvariant(p[0]) + "."));
+
+        var mots = $"{prenom} {nom}".Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return string.Join(" ", mots.Select(DeMot));
+    }
 }
 
 /// <summary>Parent déclaré. La mère est obligatoire, le second parent est facultatif.</summary>

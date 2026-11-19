@@ -29,6 +29,7 @@ naissances/
         ├── hooks/                     useDebouncedValue
         ├── features/auth/             session, garde de route, connexion, changement de mot de passe
         ├── features/naissances/       schéma Zod, hooks TanStack Query, formulaire, pages, tests
+        ├── features/certificat/       certificat imprimable (sceau, QR code), page publique /verifier
         └── test/                      MSW (faux serveur), setup Vitest
 ```
 
@@ -38,7 +39,10 @@ naissances/
 # 1) Backend (SQL Server local, voir appsettings.json)
 cd backend
 dotnet tool install --global dotnet-ef        # une seule fois
-# Les migrations (Initiale, Identite) sont déjà dans src/Naissances.Infrastructure/Migrations.
+# Les migrations (Initiale, Identite, ClesProtection, CertificatVerification) sont déjà dans
+# src/Naissances.Infrastructure/Migrations.
+# ⚠️ appsettings.json pointe vers la base Azure (db-naissances) : « dotnet run » et
+#    « dotnet ef database update » appliquent les migrations EN PRODUCTION.
 
 # Premier compte (une seule fois) — stocké hors du dépôt grâce à user-secrets :
 dotnet user-secrets set "CompteInitial:Courriel"   "vous@exemple.ca"     --project src/Naissances.Api
@@ -275,6 +279,37 @@ Procédure (déjà faite, à refaire seulement pour un autre domaine) :
 
 ---
 
+## Certificat de naissance imprimable
+
+Fiche d'une naissance → **🖨 Certificat à imprimer** → `/naissances/{id}/certificat` → **Imprimer le certificat**
+(la boîte d'impression du navigateur permet aussi « Enregistrer en PDF »). Format A4.
+
+| Élément | Détail |
+|---|---|
+| En-tête et sceau | « **Commune de X** » : X = champ **Commune** saisi à l'enregistrement (obligatoire). Sceau rond en SVG, propre à l'application (n'imite aucun sceau officiel) |
+| Code de vérification | 8 caractères aléatoires (générateur cryptographique, alphabet de Crockford sans I/L/O/U), ex. `K7QF-9M2X`, unique par acte |
+| QR code | pointe vers `https://naissance.anmbo.ca/verifier/K7QF-9M2X` |
+| Copie n° | chaque impression appelle d'abord `POST /api/naissances/{id}/delivrances` : la copie est **journalisée** (table `etatcivil.DelivrancesCertificat` : qui, quand, n°) puis imprimée |
+| Anti-copie | fond guilloché et micro-texte (une photocopie les rend flous) |
+| Acte annulé | imprimable, mais avec un grand filigrane rouge **ANNULÉ** |
+
+**Pourquoi un QR code ?** Un sceau imprimé se recopie facilement. Ce qui prouve qu'un certificat est
+authentique, c'est la page de vérification : elle interroge la base au moment du scan.
+
+**Vérification publique** — `/verifier` (saisie du code) et `/verifier/{code}`, **sans connexion** :
+
+| Route API | Résultat |
+|---|---|
+| `GET /api/verification/{code}` | 200 `{ numeroActe, initialesEnfant, dateNaissance, commune, statut, dateEnregistrementUtc }`, 404 si inconnu, **429** au-delà de 20 requêtes/minute par adresse IP |
+
+* Loi 25 / vie privée : seulement les **initiales** de l'enfant, aucun parent ni lieu précis. La personne
+  qui vérifie compare avec le papier qu'elle a en main.
+* Saisie tolérante : minuscules, tirets, espaces, et `O`→`0`, `I`/`L`→`1`.
+* Les actes enregistrés avant cette fonctionnalité ont reçu, par la migration `CertificatVerification`,
+  un code aléatoire et une commune égale à leur ville.
+
+---
+
 ## Le frontend React — les choix expliqués
 
 ### 1. Séparation des responsabilités
@@ -365,3 +400,5 @@ Si l'URL change de l'extérieur (Précédent), la saisie est resynchronisée par
 * Tests d'intégration API avec `WebApplicationFactory` + Testcontainers SQL Server.
 * Key Vault le jour où un secret sera nécessaire (aujourd'hui : aucun, tout passe par identité managée).
 * Tests d'intégration de l'API dans le pipeline (SQL Server en conteneur de service).
+* Certificat : PDF généré côté serveur et signé numériquement, si un jour un PDF « officiel » est exigé.
+* Une base de **développement** séparée (aujourd'hui `appsettings.json` pointe vers la production).

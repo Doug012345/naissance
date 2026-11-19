@@ -13,6 +13,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AjouterInfrastructure(builder.Configuration);
 builder.Services.AddScoped<EnregistrerNaissance>();
 builder.Services.AddScoped<AnnulerNaissance>();
+builder.Services.AddScoped<DelivrerCertificat>();
+builder.Services.AjouterLimiteVerification();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AjouterAuthentification(builder.Configuration, builder.Environment);
 
@@ -36,6 +38,7 @@ var app = builder.Build();
 app.UseExceptionHandler();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 if (app.Environment.IsDevelopment())
     app.MapOpenApi(); // /openapi/v1.json
@@ -52,6 +55,7 @@ if (app.Configuration.GetValue("Demarrage:AppliquerMigrations", app.Environment.
 // En dev, Vite proxifie /api vers ce serveur : pas besoin de CORS.
 app.MapAuth();
 app.MapNaissances();
+app.MapVerification();
 app.MapGet("/health", () => Results.Ok("OK"));
 
 app.Run();

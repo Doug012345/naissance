@@ -26,7 +26,7 @@ public sealed class EnregistrerNaissance(
         var numero = await generateur.ProchainAsync(maintenant.Year, ct);
 
         var naissance = Naissance.Enregistrer(
-            numero, enfant, cmd.Sexe, cmd.DateHeureNaissance, cmd.Etablissement, cmd.Ville,
+            numero, enfant, cmd.Sexe, cmd.DateHeureNaissance, cmd.Etablissement, cmd.Ville, cmd.Commune,
             cmd.PoidsGrammes, cmd.TailleCm, mere, second, maintenant);
 
         repository.Ajouter(naissance);
@@ -46,5 +46,27 @@ public sealed class AnnulerNaissance(INaissanceRepository repository)
         repository.DefinirVersionAttendue(naissance, Convert.FromBase64String(cmd.Version));
         naissance.Annuler(cmd.Motif);
         await repository.SauvegarderAsync(ct);
+    }
+}
+
+/// <summary>
+/// Cas d'utilisation : délivrer (imprimer) une copie du certificat de naissance.
+/// Chaque impression est journalisée avec un numéro de copie croissant.
+/// Un acte annulé reste imprimable : le certificat porte alors le filigrane « ANNULÉ ».
+/// </summary>
+public sealed class DelivrerCertificat(INaissanceRepository repository, TimeProvider horloge)
+{
+    public async Task<DelivranceDto> ExecuterAsync(Guid naissanceId, string delivrePar, CancellationToken ct)
+    {
+        _ = await repository.ObtenirAsync(naissanceId, ct)
+            ?? throw new IntrouvableException($"Naissance {naissanceId} introuvable.");
+
+        var maintenant = horloge.GetUtcNow().UtcDateTime;
+        var copie = await repository.CompterDelivrancesAsync(naissanceId, ct) + 1;
+        var delivrance = DelivranceCertificat.Creer(naissanceId, copie, delivrePar, maintenant);
+
+        repository.AjouterDelivrance(delivrance);
+        await repository.SauvegarderAsync(ct);
+        return new DelivranceDto(delivrance.NumeroCopie, delivrance.DateDelivranceUtc, delivrance.DelivrePar);
     }
 }

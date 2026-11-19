@@ -16,6 +16,13 @@ public sealed class Naissance
     public DateTime DateHeureNaissance { get; private set; }
     public string Etablissement { get; private set; } = null!;
     public string Ville { get; private set; } = null!;
+
+    /// <summary>Commune où l'acte est enregistré : imprimée en en-tête et sur le sceau du certificat.</summary>
+    public string Commune { get; private set; } = null!;
+
+    /// <summary>Code aléatoire imprimé sur le certificat (QR code) : voir <see cref="Naissances.CodeVerification"/>.</summary>
+    public string CodeVerification { get; private set; } = null!;
+
     public int PoidsGrammes { get; private set; }
     public decimal TailleCm { get; private set; }
     public Parent Mere { get; private set; } = null!;
@@ -36,6 +43,7 @@ public sealed class Naissance
         DateTime dateHeureNaissance,
         string? etablissement,
         string? ville,
+        string? commune,
         int poidsGrammes,
         decimal tailleCm,
         Parent mere,
@@ -62,6 +70,9 @@ public sealed class Naissance
         if (string.IsNullOrWhiteSpace(ville))
             throw new DomainException("La ville est obligatoire.", "ville");
 
+        if (string.IsNullOrWhiteSpace(commune))
+            throw new DomainException("La commune est obligatoire.", "commune");
+
         return new Naissance
         {
             Id = Guid.CreateVersion7(),
@@ -71,6 +82,8 @@ public sealed class Naissance
             DateHeureNaissance = dateHeureNaissance,
             Etablissement = etablissement.Trim(),
             Ville = ville.Trim(),
+            Commune = commune.Trim(),
+            CodeVerification = Naissances.CodeVerification.Generer(),
             PoidsGrammes = poidsGrammes,
             TailleCm = tailleCm,
             Mere = mere,

@@ -15,6 +15,7 @@ public sealed record EnregistrerNaissanceCommande(
     DateTime DateHeureNaissance,
     string Etablissement,
     string Ville,
+    string Commune,
     int PoidsGrammes,
     decimal TailleCm,
     ParentCommande Mere,
@@ -62,6 +63,8 @@ public sealed record NaissanceDetailDto(
     DateTime DateHeureNaissance,
     string Etablissement,
     string Ville,
+    string Commune,
+    string CodeVerification,
     int PoidsGrammes,
     decimal TailleCm,
     ParentDto Mere,
@@ -70,3 +73,18 @@ public sealed record NaissanceDetailDto(
     string? MotifAnnulation,
     DateTime DateEnregistrementUtc,
     string Version);
+
+/// <summary>Une impression du certificat (copie numérotée).</summary>
+public sealed record DelivranceDto(int NumeroCopie, DateTime DateDelivranceUtc, string DelivrePar);
+
+/// <summary>
+/// Réponse PUBLIQUE de la page de vérification (sans connexion) : le strict minimum (Loi 25).
+/// Les initiales seules : la personne qui vérifie compare avec le certificat papier qu'elle a en main.
+/// </summary>
+public sealed record VerificationDto(
+    string NumeroActe,
+    string InitialesEnfant,
+    DateOnly DateNaissance,
+    string Commune,
+    StatutNaissance Statut,
+    DateTime DateEnregistrementUtc);

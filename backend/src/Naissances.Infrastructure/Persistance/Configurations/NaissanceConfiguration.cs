@@ -34,6 +34,12 @@ internal sealed class NaissanceConfiguration : IEntityTypeConfiguration<Naissanc
         b.Property(n => n.DateEnregistrementUtc).HasColumnType("datetime2(0)");
         b.Property(n => n.Etablissement).HasMaxLength(200).IsRequired();
         b.Property(n => n.Ville).HasMaxLength(100).IsRequired();
+        b.Property(n => n.Commune).HasMaxLength(100).IsRequired();
+
+        // Code du QR : fixe, unique, cherché par la page publique de vérification.
+        b.Property(n => n.CodeVerification).HasMaxLength(CodeVerification.Longueur).IsFixedLength()
+         .IsUnicode(false).IsRequired();
+        b.HasIndex(n => n.CodeVerification).IsUnique();
         b.Property(n => n.TailleCm).HasPrecision(4, 1);
         b.Property(n => n.MotifAnnulation).HasMaxLength(500);
 

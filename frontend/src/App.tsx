@@ -12,8 +12,19 @@ import { DetailNaissancePage } from './features/naissances/pages/DetailNaissance
 const NouvelleNaissancePage = lazy(() => import('./features/naissances/pages/NouvelleNaissancePage'));
 const ConnexionPage = lazy(() => import('./features/auth/pages/ConnexionPage'));
 const MotDePassePage = lazy(() => import('./features/auth/pages/MotDePassePage'));
+const CertificatPage = lazy(() => import('./features/certificat/pages/CertificatPage'));
+const VerificationPage = lazy(() => import('./features/certificat/pages/VerificationPage'));
+
+const verification = (
+  <Suspense fallback={<p aria-busy="true">Chargement…</p>}>
+    <VerificationPage />
+  </Suspense>
+);
 
 export const routes: RouteObject[] = [
+  // Page PUBLIQUE (cible du QR code imprimé sur le certificat) : aucune connexion requise.
+  { path: 'verifier', element: verification },
+  { path: 'verifier/:code', element: verification },
   {
     path: 'connexion',
     element: (
@@ -34,6 +45,7 @@ export const routes: RouteObject[] = [
       { path: 'naissances', element: <ListeNaissancesPage /> },
       { path: 'naissances/nouvelle', element: <NouvelleNaissancePage /> },
       { path: 'naissances/:id', element: <DetailNaissancePage /> },
+      { path: 'naissances/:id/certificat', element: <CertificatPage /> },
       { path: 'compte/mot-de-passe', element: <MotDePassePage /> },
       {
         path: '*',

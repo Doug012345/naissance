@@ -147,6 +147,14 @@ export function NaissanceForm({ onSoumettre, maintenant }: NaissanceFormProps) {
           <Champ label="Ville" requis erreur={errors.ville?.message}>
             {(a11y) => <input {...a11y} {...register('ville')} />}
           </Champ>
+          <Champ
+            label="Commune"
+            requis
+            erreur={errors.commune?.message}
+            aide="Commune où l’acte est enregistré : imprimée sur le certificat"
+          >
+            {(a11y) => <input {...a11y} {...register('commune')} />}
+          </Champ>
         </div>
       </fieldset>
 
