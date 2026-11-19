@@ -16,3 +16,4 @@ obj/
 !*.tfvars.example
 crash.log
 *.tfplan
+infra/tfplan
