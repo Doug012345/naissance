@@ -7,6 +7,7 @@ naissances/
 ├── backend/                         (.NET 10 — Visual Studio / Rider)
 │   ├── Naissances.slnx
 │   ├── sql/schema.sql               ← lisible dans SSMS
+│   ├── sql/identite.sql             ← tables des comptes (Identity), après schema.sql
 │   ├── src/
 │   │   ├── Naissances.Domain/         Entité Naissance, objets valeur, règles métier (0 dépendance)
 │   │   ├── Naissances.Application/    Cas d'utilisation, interfaces, DTO (dépend du Domaine)
@@ -16,8 +17,9 @@ naissances/
 └── frontend/                        (React 19 + Vite + TypeScript — VS Code)
     └── src/
         ├── api/                       client fetch + types du contrat
-        ├── components/                Champ accessible, ErrorBoundary, Layout, Pagination
+        ├── components/                Champ accessible, ChampMotDePasse (œil), ErrorBoundary, Layout, Pagination
         ├── hooks/                     useDebouncedValue
+        ├── features/auth/             session, garde de route, connexion, changement de mot de passe
         ├── features/naissances/       schéma Zod, hooks TanStack Query, formulaire, pages, tests
         └── test/                      MSW (faux serveur), setup Vitest
 ```
@@ -28,16 +30,27 @@ naissances/
 # 1) Backend (SQL Server local, voir appsettings.json)
 cd backend
 dotnet tool install --global dotnet-ef        # une seule fois
-dotnet ef migrations add Initiale -p src/Naissances.Infrastructure -s src/Naissances.Api
-dotnet run --project src/Naissances.Api        # http://localhost:5080 (applique la migration en dev)
+# Les migrations (Initiale, Identite) sont déjà dans src/Naissances.Infrastructure/Migrations.
+
+# Premier compte (une seule fois) — stocké hors du dépôt grâce à user-secrets :
+dotnet user-secrets set "CompteInitial:Courriel"   "vous@exemple.ca"     --project src/Naissances.Api
+dotnet user-secrets set "CompteInitial:MotDePasse" "Un-MotDePasse-Fort1" --project src/Naissances.Api
+
+dotnet run --project src/Naissances.Api        # http://localhost:5080 (applique les migrations + crée le compte en dev)
 dotnet test
 
 # 2) Frontend
 cd frontend
 npm install
 npm run dev        # http://localhost:5173  (proxy /api → :5080, donc pas de CORS)
-npm test           # 19 tests Vitest + Testing Library + MSW
+npm test           # 35 tests Vitest + Testing Library + MSW
 ```
+
+Connectez-vous sur http://localhost:5173 avec le compte initial, puis changez le mot de passe
+via **Mot de passe** dans l'en-tête.
+
+> Si `dotnet build` échoue avec « fichier verrouillé par Naissances.Api », l'API tourne encore :
+> arrêtez-la (Ctrl+C) ou générez en Release (`dotnet ef ... --configuration Release`).
 
 > Réseau CGI/Zscaler : si `npm install` ou `dotnet restore` échoue en SSL, même correctif
 > que pour les labs (certificat racine Zscaler). Ne jamais committer le .crt.
@@ -58,6 +71,41 @@ npm test           # 19 tests Vitest + Testing Library + MSW
 * Lecture et écriture séparées (CQRS léger) : `ILectureNaissances` projette directement en DTO, `AsNoTracking`.
 * Concurrence optimiste : colonne `rowversion` → **409** si deux agents modifient la même fiche.
 * Erreurs : `DomainException("…", champ: "poidsGrammes")` → **422 ProblemDetails** avec `errors.poidsGrammes`.
+
+---
+
+## Authentification (connexion, mot de passe)
+
+**Backend** — ASP.NET Core Identity + cookie ([Authentification.cs](backend/src/Naissances.Api/Authentification.cs),
+[AuthEndpoints.cs](backend/src/Naissances.Api/Endpoints/AuthEndpoints.cs)) :
+
+| Route | Résultat |
+|---|---|
+| `POST /api/auth/connexion` `{ courriel, motDePasse }` | 200 + cookie, ou 401 |
+| `POST /api/auth/deconnexion` | 204 |
+| `GET /api/auth/moi` | 200 `{ courriel }` ou 401 |
+| `POST /api/auth/mot-de-passe` `{ motDePasseActuel, nouveauMotDePasse }` | 204, ou 422 avec `errors.motDePasseActuel` / `errors.nouveauMotDePasse` |
+
+* Toutes les routes `/api/naissances` exigent d'être connecté (`RequireAuthorization` → **401**).
+* Mots de passe **hachés** (PBKDF2) dans `etatcivil.AspNetUsers`, jamais en clair.
+* Règles : 10 caractères minimum, majuscule, minuscule, chiffre, caractère spécial (messages en français).
+* **Verrouillage** 5 minutes après 5 échecs ; message identique pour « courriel inconnu » et
+  « mauvais mot de passe » (on ne révèle pas quels comptes existent).
+* Cookie `HttpOnly` (illisible en JavaScript) + `SameSite=Strict` (protection CSRF), `Secure` hors dev,
+  8 h glissantes. Une API ne redirige pas vers une page de login : elle répond 401 / 403.
+* Pas d'inscription publique : le premier compte vient de la configuration `CompteInitial:*`
+  (user-secrets en dev). La création n'a lieu que si le compte n'existe pas encore.
+
+**Frontend** :
+
+* La session est un état serveur → `useSession()` (TanStack Query, `null` = non connecté).
+* `RouteProtegee` enveloppe le `Layout` : non connecté → `/connexion`, puis retour à la page demandée.
+* Un **401 n'importe où** (session expirée) remet la session à `null` via `QueryCache`/`MutationCache`
+  → redirection automatique vers la connexion.
+* `ChampMotDePasse` : bouton **œil** (`type="button"`, `aria-pressed`) qui bascule `password` ↔ `text`.
+* Page **Mot de passe** : ancien + nouveau + confirmation (Zod reprend les règles du serveur,
+  confirmation identique, nouveau ≠ actuel) ; un 422 s'affiche sous le bon champ.
+* La déconnexion vide le cache : l'agent suivant ne voit pas les données du précédent.
 
 ---
 
@@ -134,6 +182,11 @@ Si l'URL change de l'extérieur (Précédent), la saisie est resynchronisée par
 * Couverts : règles Zod, erreurs sous les champs, mapping d'un 422, recherche debounce → URL,
   lecture des filtres depuis l'URL, 404, 500 + Réessayer, annulation optimiste, rollback sur 409,
   création → redirection + message flash.
+* Authentification : redirection vers `/connexion` puis retour, identifiants invalides, œil
+  afficher/masquer, déconnexion, 401 → reconnexion, changement de mot de passe (succès, 422, confirmation),
+  règles Zod du nouveau mot de passe.
+* Note Vitest 5 : `setup.ts` étend aussi le `expect` **global** avec jest-dom (sinon
+  « Invalid Chai property: toBeInTheDocument »).
 
 ---
 
@@ -141,6 +194,7 @@ Si l'URL change de l'extérieur (Précédent), la saisie est resynchronisée par
 
 * Générer les types TypeScript depuis `/openapi/v1.json` (openapi-typescript / orval) pour ne plus
   maintenir `api/naissances.ts` à la main.
-* Authentification (Entra ID + MSAL React) et autorisation par rôle (agent / superviseur).
+* Rôles (agent / superviseur) et écran d'administration des comptes ; à terme, Entra ID + MSAL React.
+* Mot de passe oublié (lien par courriel), authentification à deux facteurs.
 * Tests d'intégration API avec `WebApplicationFactory` + Testcontainers SQL Server.
 * Pipeline Azure DevOps / GitLab : `dotnet test`, `npm test`, `npm run build`, image Docker, déploiement.

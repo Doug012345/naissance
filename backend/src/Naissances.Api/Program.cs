@@ -13,6 +13,7 @@ builder.Services.AjouterInfrastructure(builder.Configuration);
 builder.Services.AddScoped<EnregistrerNaissance>();
 builder.Services.AddScoped<AnnulerNaissance>();
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AjouterAuthentification(builder.Environment);
 
 // Enums en texte ("Feminin") : plus lisible côté React que 1/2/3.
 builder.Services.ConfigureHttpJsonOptions(o =>
@@ -25,15 +26,19 @@ builder.Services.AddOpenApi();
 var app = builder.Build();
 
 app.UseExceptionHandler();
+app.UseAuthentication();
+app.UseAuthorization();
 
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi(); // /openapi/v1.json
-    using var scope = app.Services.CreateScope();
-    await scope.ServiceProvider.GetRequiredService<NaissancesDbContext>().Database.MigrateAsync();
+    using (var scope = app.Services.CreateScope())
+        await scope.ServiceProvider.GetRequiredService<NaissancesDbContext>().Database.MigrateAsync();
+    await app.Services.CreerCompteInitialAsync(app.Configuration, app.Logger);
 }
 
 // En dev, Vite proxifie /api vers ce serveur : pas besoin de CORS.
+app.MapAuth();
 app.MapNaissances();
 app.MapGet("/health", () => Results.Ok("OK"));
 

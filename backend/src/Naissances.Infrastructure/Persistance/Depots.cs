@@ -81,9 +81,12 @@ internal sealed class GenerateurNumeroActe(NaissancesDbContext db) : IGenerateur
 {
     public async Task<string> ProchainAsync(int annee, CancellationToken ct)
     {
-        var valeur = await db.Database
+        // SQL Server interdit NEXT VALUE FOR dans une sous-requête. SingleAsync() ferait composer
+        // EF (SELECT TOP(2) ... FROM (<sql>) AS t) -> erreur. ToListAsync() exécute le SQL tel quel.
+        var valeurs = await db.Database
             .SqlQuery<long>($"SELECT NEXT VALUE FOR etatcivil.NumeroActeSequence AS [Value]")
-            .SingleAsync(ct);
+            .ToListAsync(ct);
+        var valeur = valeurs.Single();
 
         return $"N-{annee}-{valeur:D6}";
     }
