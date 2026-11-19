@@ -4,7 +4,10 @@ Exemple complet en **Clean Architecture**, avec l'accent sur le **frontend React
 
 ```
 naissances/
+├── docker-compose.yml               SQL Server + API + site, en une commande
+├── .env.example                     modèle des secrets locaux (copier en .env)
 ├── backend/                         (.NET 10 — Visual Studio / Rider)
+│   ├── Dockerfile                   image de l'API (SDK → runtime, non-root, port 8080)
 │   ├── Naissances.slnx
 │   ├── sql/schema.sql               ← lisible dans SSMS
 │   ├── sql/identite.sql             ← tables des comptes (Identity), après schema.sql
@@ -15,6 +18,8 @@ naissances/
 │   │   └── Naissances.Api/            Minimal API, ProblemDetails, composition root
 │   └── tests/Naissances.Domain.Tests/ xUnit
 └── frontend/                        (React 19 + Vite + TypeScript — VS Code)
+    ├── Dockerfile                   image du site (Node → nginx non-root, port 8080)
+    ├── nginx.conf.template          sert le site + relaie /api vers l'API
     └── src/
         ├── api/                       client fetch + types du contrat
         ├── components/                Champ accessible, ChampMotDePasse (œil), ErrorBoundary, Layout, Pagination
@@ -51,6 +56,38 @@ via **Mot de passe** dans l'en-tête.
 
 > Si `dotnet build` échoue avec « fichier verrouillé par Naissances.Api », l'API tourne encore :
 > arrêtez-la (Ctrl+C) ou générez en Release (`dotnet ef ... --configuration Release`).
+
+## Démarrage avec Docker (tout-en-un)
+
+Prérequis : Docker Desktop. Aucun .NET, Node ni SQL Server à installer.
+
+```bash
+cp .env.example .env            # puis modifiez les mots de passe dans .env
+docker compose up --build -d    # 1er lancement : quelques minutes (téléchargement des images)
+# → http://localhost:8080  (connexion avec COMPTE_COURRIEL / COMPTE_MOT_DE_PASSE du .env)
+
+docker compose logs -f api      # journaux de l'API
+docker compose down             # arrêter (les données sont conservées)
+docker compose down -v          # arrêter ET effacer la base locale
+```
+
+```
+navigateur ──▶ web (nginx :8080) ──/api──▶ api (.NET :8080) ──▶ sql (SQL Server, volume sql-donnees)
+```
+
+| Choix | Pourquoi |
+|---|---|
+| Images **multi-étapes** | On compile avec le SDK / Node, on n'expédie que le runtime : API ≈ 400 Mo, site ≈ 75 Mo |
+| `.csproj` / `package.json` copiés **avant** le code | Docker réutilise le cache du `restore` / `npm ci` tant que les dépendances ne changent pas |
+| Utilisateurs **non-root** (`$APP_UID`, `nginx-unprivileged`) | Un conteneur compromis n'a pas les droits root |
+| **nginx relaie `/api`** | Site et API sur la même origine : pas de CORS, cookie `SameSite=Strict` inchangé (comme le proxy Vite) |
+| `ASPNETCORE_FORWARDEDHEADERS_ENABLED` | Derrière nginx / Azure, l'API voit le vrai schéma (`https`) et la vraie IP |
+| Volume **`cles-api`** (`DataProtection:Dossier`) | Les clés qui chiffrent le cookie survivent au redémarrage : on reste connecté |
+| `Demarrage:AppliquerMigrations=true` | Hors dev, migrations + compte initial seulement si on le demande explicitement |
+| `Authentification:CookieHttpsObligatoire=false` | Seulement en local (http). En Azure (https) le cookie reste `Secure` |
+| **SQL Server en conteneur** (`localhost,14333` dans SSMS) | Base locale jetable, indépendante d'Azure SQL ; `healthcheck` → l'API attend qu'elle soit prête |
+
+> La base du `docker compose` est **locale**. Pour Azure, l'API utilisera Azure SQL (étape Terraform).
 
 > Réseau CGI/Zscaler : si `npm install` ou `dotnet restore` échoue en SSL, même correctif
 > que pour les labs (certificat racine Zscaler). Ne jamais committer le .crt.
@@ -197,4 +234,9 @@ Si l'URL change de l'extérieur (Précédent), la saisie est resynchronisée par
 * Rôles (agent / superviseur) et écran d'administration des comptes ; à terme, Entra ID + MSAL React.
 * Mot de passe oublié (lien par courriel), authentification à deux facteurs.
 * Tests d'intégration API avec `WebApplicationFactory` + Testcontainers SQL Server.
-* Pipeline Azure DevOps / GitLab : `dotnet test`, `npm test`, `npm run build`, image Docker, déploiement.
+* **En cours** : Terraform (Azure Container Apps, Container Registry, Key Vault, import de `rg-naissances`
+  et de la base SQL existante), domaine `naissance.anmbo.ca` avec certificat HTTPS, puis CI/CD GitHub Actions
+  (`dotnet test`, `npm test`, build et push des images Docker, déploiement).
+* Mettre à jour `Microsoft.EntityFrameworkCore.Design` : sa dépendance d'outillage
+  `System.Security.Cryptography.Xml` 9.0.0 a une faille connue (avertissement NU1903). Elle n'est pas
+  embarquée dans l'image Docker.
