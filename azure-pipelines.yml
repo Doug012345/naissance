@@ -73,10 +73,10 @@ stages:
       - job: Frontend
         displayName: Frontend React
         steps:
-          - task: NodeTool@0
+          - task: UseNode@1 # NodeTool@0 est obsolète (avertissement Azure DevOps)
             displayName: Node 22
             inputs:
-              versionSpec: 22.x
+              version: 22.x
 
           - script: npm ci
             workingDirectory: frontend
