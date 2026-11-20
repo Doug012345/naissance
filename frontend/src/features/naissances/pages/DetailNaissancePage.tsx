@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { ApiError } from '../../../api/client';
 import { formaterCode, libellesSexe, type NaissanceDetail } from '../../../api/naissances';
-import { useAnnulerNaissance, useNaissance } from '../hooks';
+import { useAnnulerNaissance, useNaissance, useRectifications } from '../hooks';
 import { formatDate, formatDateHeure, StatutBadge } from '../components/StatutBadge';
 
 export function DetailNaissancePage() {
@@ -45,10 +45,15 @@ export function DetailNaissancePage() {
       </div>
       <p className="numero">Acte n° {n.numeroActe}</p>
 
-      <p>
+      <p className="actions">
         <Link to={`/naissances/${n.id}/certificat`} className="bouton">
-          🖨 Certificat à imprimer
+          🖨 Certificat (imprimer ou PDF)
         </Link>
+        {n.statut === 'Enregistree' && (
+          <Link to={`/naissances/${n.id}/rectifier`} className="bouton bouton--secondaire">
+            ✏️ Rectifier
+          </Link>
+        )}
       </p>
 
       <dl className="fiche">
@@ -82,6 +87,12 @@ export function DetailNaissancePage() {
             </dd>
           </>
         )}
+        {n.dateDerniereRectificationUtc && (
+          <>
+            <dt>Dernière rectification</dt>
+            <dd>{formatDate(n.dateDerniereRectificationUtc)}</dd>
+          </>
+        )}
         {n.motifAnnulation && (
           <>
             <dt>Motif d’annulation</dt>
@@ -90,12 +101,58 @@ export function DetailNaissancePage() {
         )}
       </dl>
 
+      {n.dateDerniereRectificationUtc && <HistoriqueRectifications id={n.id} />}
+
       {n.statut === 'Enregistree' && <AnnulationForm naissance={n} />}
 
       <p>
         <Link to="/naissances">← Retour à la liste</Link>
       </p>
     </article>
+  );
+}
+
+/** Historique des rectifications : qui, quand, pourquoi, et chaque champ avant → après. */
+function HistoriqueRectifications({ id }: { id: string }) {
+  const { data, isPending, isError } = useRectifications(id);
+
+  return (
+    <section aria-labelledby="titre-historique" className="historique">
+      <h2 id="titre-historique">Historique des rectifications</h2>
+      {isPending && <p aria-busy="true">Chargement…</p>}
+      {isError && <p className="champ__erreur">Impossible de charger l’historique.</p>}
+      {data?.map((r) => (
+        <article key={r.dateRectificationUtc} className="encart">
+          <p>
+            <strong>{formatDateHeure(`${r.dateRectificationUtc.replace(/Z$/, '')}Z`)}</strong> — {r.rectifiePar}
+            <br />
+            Motif : {r.motif}
+          </p>
+          <table className="tableau">
+            <thead>
+              <tr>
+                <th scope="col">Champ</th>
+                <th scope="col">Avant</th>
+                <th scope="col">Après</th>
+              </tr>
+            </thead>
+            <tbody>
+              {r.changements.map((c) => (
+                <tr key={c.champ}>
+                  <td>{c.champ}</td>
+                  <td>
+                    <del>{c.ancienneValeur}</del>
+                  </td>
+                  <td>
+                    <ins>{c.nouvelleValeur}</ins>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </article>
+      ))}
+    </section>
   );
 }
 

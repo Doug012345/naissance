@@ -80,15 +80,23 @@ function Resultat({ code }: { code: string }) {
   }
 
   const annule = v.statut === 'Annulee';
+  const remplace = Boolean(v.remplace);
+  let titre = '✅ Certificat authentique';
+  if (annule) titre = '⚠️ Cet acte a été ANNULÉ';
+  else if (remplace) titre = '⚠️ Certificat REMPLACÉ (acte rectifié)';
   return (
     <section
       aria-labelledby="titre-resultat"
-      className={`encart ${annule ? 'encart--erreur' : 'encart--succes'}`}
+      className={`encart ${annule || remplace ? 'encart--erreur' : 'encart--succes'}`}
       role="status"
     >
-      <h2 id="titre-resultat">
-        {annule ? '⚠️ Cet acte a été ANNULÉ' : '✅ Certificat authentique'}
-      </h2>
+      <h2 id="titre-resultat">{titre}</h2>
+      {remplace && !annule && v.dateRectificationUtc && (
+        <p>
+          Ce certificat a été imprimé avant une rectification de l’acte, le {formatDate(v.dateRectificationUtc)}.
+          Il n’est plus à jour : demandez un certificat récent.
+        </p>
+      )}
       <dl className="fiche">
         <dt>Acte n°</dt>
         <dd>{v.numeroActe}</dd>
@@ -100,6 +108,12 @@ function Resultat({ code }: { code: string }) {
         <dd>{v.commune}</dd>
         <dt>Enregistré le</dt>
         <dd>{formatDate(v.dateEnregistrementUtc)}</dd>
+        {!remplace && v.dateRectificationUtc && (
+          <>
+            <dt>Rectifié le</dt>
+            <dd>{formatDate(v.dateRectificationUtc)}</dd>
+          </>
+        )}
         <dt>Code</dt>
         <dd>{formaterCode(code.replace(/[-\s]/g, ''))}</dd>
       </dl>

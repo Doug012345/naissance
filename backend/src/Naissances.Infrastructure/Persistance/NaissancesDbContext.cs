@@ -17,6 +17,7 @@ public sealed class NaissancesDbContext(DbContextOptions<NaissancesDbContext> op
 {
     public DbSet<Naissance> Naissances => Set<Naissance>();
     public DbSet<DelivranceCertificat> DelivrancesCertificat => Set<DelivranceCertificat>();
+    public DbSet<RectificationNaissance> RectificationsNaissance => Set<RectificationNaissance>();
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

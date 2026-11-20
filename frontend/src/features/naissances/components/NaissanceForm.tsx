@@ -10,13 +10,20 @@ import {
   valeursParDefaut,
   versRequete,
   type NaissanceFormInput,
+  type OptionsSchema,
   type NaissanceFormValues,
 } from '../schema';
 
 interface NaissanceFormProps {
-  onSoumettre: (requete: EnregistrerNaissanceRequete) => Promise<unknown>;
+  /** `motif` : renseigné seulement en mode rectification. */
+  onSoumettre: (requete: EnregistrerNaissanceRequete, motif: string) => Promise<unknown>;
   /** Injectable pour les tests. */
   maintenant?: () => Date;
+  /** Rectification : valeurs de l'acte existant. */
+  valeursInitiales?: NaissanceFormInput;
+  /** Rectification : date de référence du délai de 30 jours + motif obligatoire. */
+  options?: OptionsSchema;
+  libelleSoumettre?: string;
 }
 
 /**
@@ -25,9 +32,24 @@ interface NaissanceFormProps {
  * Pourquoi RHF ? Inputs NON contrôlés (register) → pas de re-render à chaque frappe,
  * même avec ~15 champs. On ne « regarde » (useWatch) que ce qui pilote l'affichage.
  */
-export function NaissanceForm({ onSoumettre, maintenant }: NaissanceFormProps) {
+export function NaissanceForm({
+  onSoumettre,
+  maintenant,
+  valeursInitiales = valeursParDefaut,
+  options,
+  libelleSoumettre = 'Enregistrer la naissance',
+}: NaissanceFormProps) {
+  const avecMotif = options?.avecMotif ?? false;
+  const dateReference = options?.dateReference?.getTime();
   // Le schéma ne doit pas être recréé à chaque rendu.
-  const schema = useMemo(() => creerSchemaNaissance(maintenant), [maintenant]);
+  const schema = useMemo(
+    () =>
+      creerSchemaNaissance(maintenant, {
+        avecMotif,
+        dateReference: dateReference === undefined ? undefined : new Date(dateReference),
+      }),
+    [maintenant, avecMotif, dateReference],
+  );
 
   const {
     register,
@@ -37,7 +59,7 @@ export function NaissanceForm({ onSoumettre, maintenant }: NaissanceFormProps) {
     formState: { errors, isSubmitting },
   } = useForm<NaissanceFormInput, unknown, NaissanceFormValues>({
     resolver: zodResolver(schema),
-    defaultValues: valeursParDefaut,
+    defaultValues: valeursInitiales,
     mode: 'onTouched', // valide au blur, puis à chaque frappe sur les champs touchés
   });
 
@@ -46,7 +68,7 @@ export function NaissanceForm({ onSoumettre, maintenant }: NaissanceFormProps) {
 
   const soumettre = handleSubmit(async (valeurs) => {
     try {
-      await onSoumettre(versRequete(valeurs));
+      await onSoumettre(versRequete(valeurs), valeurs.motif.trim());
     } catch (e) {
       // 422 du domaine C# → on affiche l'erreur SOUS le champ concerné.
       if (e instanceof ApiError && e.isValidation) {
@@ -199,9 +221,23 @@ export function NaissanceForm({ onSoumettre, maintenant }: NaissanceFormProps) {
         )}
       </fieldset>
 
+      {avecMotif && (
+        <fieldset>
+          <legend>Rectification</legend>
+          <Champ
+            label="Motif de la rectification"
+            requis
+            erreur={errors.motif?.message}
+            aide="10 caractères minimum, ex. « Erreur de saisie du prénom ». Conservé dans l’historique de l’acte."
+          >
+            {(a11y) => <textarea rows={3} {...a11y} {...register('motif')} />}
+          </Champ>
+        </fieldset>
+      )}
+
       <div className="actions">
         <button type="submit" disabled={isSubmitting} aria-busy={isSubmitting}>
-          {isSubmitting ? 'Enregistrement…' : 'Enregistrer la naissance'}
+          {isSubmitting ? 'Enregistrement…' : libelleSoumettre}
         </button>
       </div>
     </form>

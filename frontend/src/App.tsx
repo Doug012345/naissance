@@ -12,6 +12,7 @@ import { DetailNaissancePage } from './features/naissances/pages/DetailNaissance
 const NouvelleNaissancePage = lazy(() => import('./features/naissances/pages/NouvelleNaissancePage'));
 const ConnexionPage = lazy(() => import('./features/auth/pages/ConnexionPage'));
 const MotDePassePage = lazy(() => import('./features/auth/pages/MotDePassePage'));
+const RectificationPage = lazy(() => import('./features/naissances/pages/RectificationPage'));
 const CertificatPage = lazy(() => import('./features/certificat/pages/CertificatPage'));
 const VerificationPage = lazy(() => import('./features/certificat/pages/VerificationPage'));
 
@@ -45,6 +46,7 @@ export const routes: RouteObject[] = [
       { path: 'naissances', element: <ListeNaissancesPage /> },
       { path: 'naissances/nouvelle', element: <NouvelleNaissancePage /> },
       { path: 'naissances/:id', element: <DetailNaissancePage /> },
+      { path: 'naissances/:id/rectifier', element: <RectificationPage /> },
       { path: 'naissances/:id/certificat', element: <CertificatPage /> },
       { path: 'compte/mot-de-passe', element: <MotDePassePage /> },
       {

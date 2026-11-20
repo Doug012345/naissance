@@ -54,6 +54,7 @@ describe('<NaissanceForm />', () => {
         tailleCm: 50.5,
         secondParent: null,
       }),
+      '', // pas de motif en création
     );
   });
 

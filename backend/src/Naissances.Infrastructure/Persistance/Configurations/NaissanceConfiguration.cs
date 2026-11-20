@@ -32,6 +32,7 @@ internal sealed class NaissanceConfiguration : IEntityTypeConfiguration<Naissanc
         b.Property(n => n.Statut).HasConversion<string>().HasMaxLength(20);
         b.Property(n => n.DateHeureNaissance).HasColumnType("datetime2(0)");
         b.Property(n => n.DateEnregistrementUtc).HasColumnType("datetime2(0)");
+        b.Property(n => n.DateDerniereRectificationUtc).HasColumnType("datetime2(0)");
         b.Property(n => n.Etablissement).HasMaxLength(200).IsRequired();
         b.Property(n => n.Ville).HasMaxLength(100).IsRequired();
         b.Property(n => n.Commune).HasMaxLength(100).IsRequired();

@@ -3,15 +3,11 @@ using Naissances.Domain.Naissances;
 
 namespace Naissances.Application.Naissances;
 
-/// <summary>Cas d'utilisation : enregistrer une nouvelle naissance.</summary>
-public sealed class EnregistrerNaissance(
-    INaissanceRepository repository,
-    IGenerateurNumeroActe generateur,
-    TimeProvider horloge)
+/// <summary>Objets du domaine construits à partir des données saisies (partagé enregistrement / rectification).</summary>
+internal sealed record DonneesDomaine(Identite Enfant, Parent Mere, Parent? SecondParent)
 {
-    public async Task<Guid> ExecuterAsync(EnregistrerNaissanceCommande cmd, CancellationToken ct)
+    public static DonneesDomaine Depuis(EnregistrerNaissanceCommande cmd)
     {
-        var maintenant = horloge.GetUtcNow().UtcDateTime;
         var dateEnfant = DateOnly.FromDateTime(cmd.DateHeureNaissance);
 
         // Les objets valeur lèvent DomainException avec le nom du champ fautif.
@@ -22,16 +18,55 @@ public sealed class EnregistrerNaissance(
             ? null
             : Parent.Creer(Identite.Creer(cmd.SecondParent.Prenom, cmd.SecondParent.Nom, "secondParent"),
                            cmd.SecondParent.DateNaissance, dateEnfant, "secondParent");
+        return new DonneesDomaine(enfant, mere, second);
+    }
+}
+
+/// <summary>Cas d'utilisation : enregistrer une nouvelle naissance.</summary>
+public sealed class EnregistrerNaissance(
+    INaissanceRepository repository,
+    IGenerateurNumeroActe generateur,
+    TimeProvider horloge)
+{
+    public async Task<Guid> ExecuterAsync(EnregistrerNaissanceCommande cmd, CancellationToken ct)
+    {
+        var maintenant = horloge.GetUtcNow().UtcDateTime;
+        var d = DonneesDomaine.Depuis(cmd);
 
         var numero = await generateur.ProchainAsync(maintenant.Year, ct);
 
         var naissance = Naissance.Enregistrer(
-            numero, enfant, cmd.Sexe, cmd.DateHeureNaissance, cmd.Etablissement, cmd.Ville, cmd.Commune,
-            cmd.PoidsGrammes, cmd.TailleCm, mere, second, maintenant);
+            numero, d.Enfant, cmd.Sexe, cmd.DateHeureNaissance, cmd.Etablissement, cmd.Ville, cmd.Commune,
+            cmd.PoidsGrammes, cmd.TailleCm, d.Mere, d.SecondParent, maintenant);
 
         repository.Ajouter(naissance);
         await repository.SauvegarderAsync(ct);
         return naissance.Id;
+    }
+}
+
+/// <summary>
+/// Cas d'utilisation : rectifier un acte (erreur de saisie…). Motif obligatoire, historique des
+/// champs modifiés, nouveau code de vérification. 409 si quelqu'un a modifié l'acte entre-temps.
+/// </summary>
+public sealed class RectifierNaissance(INaissanceRepository repository, TimeProvider horloge)
+{
+    public async Task ExecuterAsync(Guid id, RectifierNaissanceCommande cmd, string rectifiePar, CancellationToken ct)
+    {
+        var naissance = await repository.ObtenirAsync(id, ct)
+                        ?? throw new IntrouvableException($"Naissance {id} introuvable.");
+
+        repository.DefinirVersionAttendue(naissance, Convert.FromBase64String(cmd.Version));
+
+        var c = cmd.Donnees;
+        var d = DonneesDomaine.Depuis(c);
+        var rectification = naissance.Rectifier(
+            d.Enfant, c.Sexe, c.DateHeureNaissance, c.Etablissement, c.Ville, c.Commune,
+            c.PoidsGrammes, c.TailleCm, d.Mere, d.SecondParent, cmd.Motif, rectifiePar,
+            horloge.GetUtcNow().UtcDateTime);
+
+        repository.AjouterRectification(rectification);
+        await repository.SauvegarderAsync(ct);
     }
 }
 
@@ -68,5 +103,26 @@ public sealed class DelivrerCertificat(INaissanceRepository repository, TimeProv
         repository.AjouterDelivrance(delivrance);
         await repository.SauvegarderAsync(ct);
         return new DelivranceDto(delivrance.NumeroCopie, delivrance.DateDelivranceUtc, delivrance.DelivrePar);
+    }
+}
+
+/// <summary>
+/// Cas d'utilisation : télécharger le certificat en PDF. Comme une impression, chaque
+/// téléchargement est une copie numérotée et journalisée.
+/// </summary>
+public sealed class TelechargerCertificat(
+    DelivrerCertificat delivrer,
+    ILectureNaissances lecture,
+    IGenerateurCertificatPdf generateur)
+{
+    public async Task<CertificatPdf> ExecuterAsync(Guid naissanceId, string delivrePar, CancellationToken ct)
+    {
+        var delivrance = await delivrer.ExecuterAsync(naissanceId, delivrePar, ct);
+        var naissance = await lecture.ObtenirDetailAsync(naissanceId, ct)
+                        ?? throw new IntrouvableException($"Naissance {naissanceId} introuvable.");
+
+        var contenu = generateur.Generer(naissance, delivrance);
+        var nom = $"certificat-{naissance.NumeroActe}-copie-{delivrance.NumeroCopie}.pdf";
+        return new CertificatPdf(contenu, nom, delivrance.NumeroCopie);
     }
 }

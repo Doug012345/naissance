@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
-import { ApiError } from '../../../api/client';
+import { ApiError, enregistrerFichier } from '../../../api/client';
 import { formaterCode, libellesSexe, type Delivrance, type NaissanceDetail } from '../../../api/naissances';
-import { useDelivrerCertificat, useNaissance } from '../../naissances/hooks';
+import { useDelivrerCertificat, useNaissance, useTelechargerCertificat } from '../../naissances/hooks';
 import { formatDate, formatDateHeure } from '../../naissances/components/StatutBadge';
 import { Sceau } from '../components/Sceau';
 
@@ -15,12 +15,17 @@ import { Sceau } from '../components/Sceau';
  *   2. le n° de copie et la date s'affichent sur le certificat
  *   3. window.print() ouvre la boîte d'impression du navigateur
  * Le menu, les boutons et tout ce qui porte la classe « ne-pas-imprimer » sont masqués sur papier.
+ *
+ * Bouton « Télécharger (PDF) » : POST /api/naissances/{id}/certificat.pdf. L'API fabrique le PDF
+ * (QuestPDF) et journalise la copie, exactement comme une impression.
  */
 export default function CertificatPage() {
   const { id = '' } = useParams();
   const { data: n, isPending, isError, error } = useNaissance(id);
   const delivrer = useDelivrerCertificat();
   const [delivrance, setDelivrance] = useState<Delivrance | null>(null);
+  const telecharger = useTelechargerCertificat();
+  const [copiePdf, setCopiePdf] = useState<number | null>(null);
 
   // On imprime APRÈS le rendu du n° de copie, sinon le papier afficherait l'ancien.
   useEffect(() => {
@@ -39,15 +44,38 @@ export default function CertificatPage() {
   }
 
   const imprimer = () => delivrer.mutate(n.id, { onSuccess: setDelivrance });
+  const telechargerPdf = () =>
+    telecharger.mutate(n.id, {
+      onSuccess: (fichier) => {
+        enregistrerFichier(fichier);
+        setCopiePdf(fichier.numeroCopie);
+      },
+    });
+  const occupe = delivrer.isPending || telecharger.isPending;
 
   return (
     <>
       <div className="barre-certificat ne-pas-imprimer">
         <Link to={`/naissances/${n.id}`}>← Retour à la fiche</Link>
-        <button type="button" className="bouton" onClick={imprimer} disabled={delivrer.isPending}>
-          {delivrer.isPending ? 'Préparation…' : '🖨 Imprimer le certificat'}
-        </button>
+        <div className="actions">
+          <button type="button" className="bouton" onClick={imprimer} disabled={occupe}>
+            {delivrer.isPending ? 'Préparation…' : '🖨 Imprimer le certificat'}
+          </button>
+          <button type="button" className="bouton" onClick={telechargerPdf} disabled={occupe}>
+            {telecharger.isPending ? 'Préparation du PDF…' : '⬇ Télécharger (PDF)'}
+          </button>
+        </div>
       </div>
+      {telecharger.isError && (
+        <p role="alert" className="encart encart--erreur ne-pas-imprimer">
+          Impossible de générer le PDF : {telecharger.error.message}
+        </p>
+      )}
+      {copiePdf !== null && !telecharger.isPending && (
+        <p role="status" className="encart encart--succes ne-pas-imprimer">
+          PDF téléchargé : copie n° {copiePdf} enregistrée dans le journal des délivrances.
+        </p>
+      )}
       {n.statut === 'Annulee' && (
         <p className="encart encart--erreur ne-pas-imprimer">
           Cet acte est annulé : le certificat sera imprimé avec la mention « ANNULÉ ».
@@ -115,6 +143,12 @@ function Certificat({ naissance: n, delivrance }: { naissance: NaissanceDetail; 
         )}
         <dt>Acte enregistré le</dt>
         <dd>{formatDate(n.dateEnregistrementUtc)}</dd>
+        {n.dateDerniereRectificationUtc && (
+          <>
+            <dt>Acte rectifié le</dt>
+            <dd>{formatDate(n.dateDerniereRectificationUtc)}</dd>
+          </>
+        )}
       </dl>
 
       <p className="certificat__mention">

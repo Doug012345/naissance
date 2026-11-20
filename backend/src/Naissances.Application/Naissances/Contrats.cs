@@ -24,6 +24,9 @@ public sealed record EnregistrerNaissanceCommande(
 /// <param name="Version">rowversion encodée en base64, reçue lors du GET détail.</param>
 public sealed record AnnulerNaissanceCommande(string Motif, string Version);
 
+/// <summary>Rectification : les MÊMES données que l'enregistrement + le motif + la version affichée.</summary>
+public sealed record RectifierNaissanceCommande(EnregistrerNaissanceCommande Donnees, string Motif, string Version);
+
 // ---------- Requêtes ----------
 
 public sealed record RechercheNaissances(
@@ -72,14 +75,26 @@ public sealed record NaissanceDetailDto(
     StatutNaissance Statut,
     string? MotifAnnulation,
     DateTime DateEnregistrementUtc,
+    DateTime? DateDerniereRectificationUtc,
     string Version);
 
 /// <summary>Une impression du certificat (copie numérotée).</summary>
 public sealed record DelivranceDto(int NumeroCopie, DateTime DateDelivranceUtc, string DelivrePar);
 
+public sealed record ChangementDto(string Champ, string AncienneValeur, string NouvelleValeur);
+
+/// <summary>Une entrée de l'historique des rectifications (fiche de l'acte).</summary>
+public sealed record RectificationDto(
+    DateTime DateRectificationUtc, string RectifiePar, string Motif, IReadOnlyList<ChangementDto> Changements);
+
+/// <summary>Certificat PDF prêt à télécharger (la copie est déjà journalisée).</summary>
+public sealed record CertificatPdf(byte[] Contenu, string NomFichier, int NumeroCopie);
+
 /// <summary>
 /// Réponse PUBLIQUE de la page de vérification (sans connexion) : le strict minimum (Loi 25).
 /// Les initiales seules : la personne qui vérifie compare avec le certificat papier qu'elle a en main.
+/// Remplace = true : le code est celui d'un certificat imprimé AVANT une rectification
+/// (DateRectificationUtc = date de cette rectification) ; ce papier n'est plus à jour.
 /// </summary>
 public sealed record VerificationDto(
     string NumeroActe,
@@ -87,4 +102,6 @@ public sealed record VerificationDto(
     DateOnly DateNaissance,
     string Commune,
     StatutNaissance Statut,
-    DateTime DateEnregistrementUtc);
+    DateTime DateEnregistrementUtc,
+    DateTime? DateRectificationUtc,
+    bool Remplace);

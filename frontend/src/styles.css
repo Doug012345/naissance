@@ -172,3 +172,11 @@ input[type='radio'], input[type='checkbox'] { width: auto; }
   .certificat__mention { margin-top: auto; }
   .certificat__pied { margin-top: 8mm; }
 }
+
+/* Rectification */
+.bouton--secondaire, a.bouton--secondaire { background: var(--surface); color: var(--accent); border-color: var(--accent); }
+.historique { margin: 24px 0; }
+.historique h2 { font-size: 1.2rem; }
+.historique .tableau { font-size: 0.95rem; }
+.historique del { color: var(--erreur); }
+.historique ins { color: var(--succes); text-decoration: none; font-weight: 600; }

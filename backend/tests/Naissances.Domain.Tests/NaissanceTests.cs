@@ -114,3 +114,95 @@ public class DelivranceCertificatTests
         Assert.Throws<DomainException>(() =>
             DelivranceCertificat.Creer(Guid.NewGuid(), 0, "agent@exemple.ca", DateTime.UtcNow));
 }
+
+public class RectificationTests
+{
+    private static readonly DateTime Maintenant = new(2026, 11, 18, 12, 0, 0, DateTimeKind.Utc);
+    private static readonly DateOnly DateEnfant = DateOnly.FromDateTime(Maintenant);
+
+    private static Naissance Creer() =>
+        Naissance.Enregistrer("N-2026-000001", Identite.Creer("Léa", "Tremblay", "enfant"), Sexe.Feminin,
+            Maintenant.AddHours(-5), "CHU Sainte-Justine", "Montréal", "Montréal", 3400, 50.5m,
+            Mere("Marie"), null, Maintenant);
+
+    private static Parent Mere(string prenom) =>
+        Parent.Creer(Identite.Creer(prenom, "Tremblay", "mere"), new DateOnly(1994, 3, 2), DateEnfant, "mere");
+
+    private static RectificationNaissance Rectifier(Naissance n, string prenom = "Léa", string commune = "Montréal",
+        string? motif = "Erreur de saisie du prénom", DateTime? date = null, string mere = "Marie") =>
+        n.Rectifier(Identite.Creer(prenom, "Tremblay", "enfant"), Sexe.Feminin, date ?? Maintenant.AddHours(-5),
+            "CHU Sainte-Justine", "Montréal", commune, 3400, 50.5m, Mere(mere), null,
+            motif, "agent@exemple.ca", Maintenant.AddDays(3));
+
+    [Fact]
+    public void Rectifier_change_les_donnees_et_journalise_avant_apres()
+    {
+        var n = Creer();
+        var numero = n.NumeroActe;
+
+        var r = Rectifier(n, prenom: "Léana", mere: "Marie-Ève");
+
+        Assert.Equal("Léana", n.Enfant.Prenom);
+        Assert.Equal(numero, n.NumeroActe); // le numéro d'acte ne change jamais
+        Assert.Equal(Maintenant.AddDays(3), n.DateDerniereRectificationUtc);
+        Assert.Equal("agent@exemple.ca", r.RectifiePar);
+        Assert.Equal(2, r.Changements.Count);
+        Assert.Contains(r.Changements, c => c is { Champ: "Prénom", AncienneValeur: "Léa", NouvelleValeur: "Léana" });
+        Assert.Contains(r.Changements, c => c.Champ == "Mère" && c.NouvelleValeur.StartsWith("Marie-Ève"));
+    }
+
+    [Fact]
+    public void Rectifier_attribue_un_nouveau_code_et_garde_l_ancien_dans_l_historique()
+    {
+        var n = Creer();
+        var ancien = n.CodeVerification;
+
+        var r = Rectifier(n, commune: "Laval");
+
+        Assert.NotEqual(ancien, n.CodeVerification);
+        Assert.Equal(ancien, r.AncienCodeVerification);
+    }
+
+    [Fact]
+    public void Rectifier_sans_aucun_changement_est_refuse()
+    {
+        var n = Creer();
+        var code = n.CodeVerification;
+        Assert.Throws<DomainException>(() => Rectifier(n));
+        Assert.Equal(code, n.CodeVerification);
+        Assert.Null(n.DateDerniereRectificationUtc);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Trop bref")] // 9 caractères
+    public void Rectifier_exige_un_motif_d_au_moins_10_caracteres(string? motif)
+    {
+        var ex = Assert.Throws<DomainException>(() => Rectifier(Creer(), prenom: "Léana", motif: motif));
+        Assert.Equal("motif", ex.Champ);
+    }
+
+    [Fact]
+    public void Rectifier_un_acte_annule_est_interdit()
+    {
+        var n = Creer();
+        n.Annuler("Doublon de saisie constaté");
+        Assert.Throws<DomainException>(() => Rectifier(n, prenom: "Léana"));
+    }
+
+    [Fact]
+    public void Rectifier_refuse_une_naissance_posterieure_a_l_enregistrement()
+    {
+        var ex = Assert.Throws<DomainException>(() => Rectifier(Creer(), date: Maintenant.AddDays(1)));
+        Assert.Equal("dateHeureNaissance", ex.Champ);
+    }
+
+    [Fact]
+    public void Rectifier_accepte_une_date_plus_de_30_jours_avant_aujourd_hui_si_proche_de_l_enregistrement()
+    {
+        // Rectification faite 3 jours après : la date reste valide par rapport à l'enregistrement.
+        var n = Creer();
+        Rectifier(n, date: Maintenant.AddDays(-29));
+        Assert.Equal(Maintenant.AddDays(-29), n.DateHeureNaissance);
+    }
+}

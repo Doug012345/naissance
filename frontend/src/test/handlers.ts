@@ -1,5 +1,10 @@
 import { http, HttpResponse } from 'msw';
-import type { NaissanceDetail, NaissanceResume } from '../api/naissances';
+import type {
+  EnregistrerNaissanceRequete,
+  NaissanceDetail,
+  NaissanceResume,
+  Rectification,
+} from '../api/naissances';
 
 /**
  * MSW intercepte fetch au niveau réseau : les composants appellent la VRAIE
@@ -50,10 +55,14 @@ export const fixtures: NaissanceDetail[] = [
 
 let db: NaissanceDetail[] = [];
 let copies: Record<string, number> = {};
+let rectifications: Record<string, (Rectification & { ancienCode: string })[]> = {};
 export const reinitialiserDb = () => {
   db = structuredClone(fixtures);
   copies = {};
+  rectifications = {};
 };
+
+const nouvelleCopie = (id: string) => (copies[id] = (copies[id] ?? 0) + 1);
 
 const resume = (n: NaissanceDetail): NaissanceResume => ({
   id: n.id,
@@ -134,17 +143,80 @@ export const handlers = [
   http.post('/api/naissances/:id/delivrances', ({ params }) => {
     const n = db.find((x) => x.id === params.id);
     if (!n) return HttpResponse.json({ status: 404 }, { status: 404 });
-    copies[n.id] = (copies[n.id] ?? 0) + 1;
     return HttpResponse.json(
-      { numeroCopie: copies[n.id], dateDelivranceUtc: '2026-11-19T14:00:00Z', delivrePar: utilisateurTest.courriel },
+      { numeroCopie: nouvelleCopie(n.id), dateDelivranceUtc: '2026-11-19T14:00:00Z', delivrePar: utilisateurTest.courriel },
       { status: 201 },
     );
   }),
 
-  // Comme l'API : saisie tolérante (minuscules, tiret) et infos minimales.
+  http.post('/api/naissances/:id/certificat.pdf', ({ params }) => {
+    const n = db.find((x) => x.id === params.id);
+    if (!n) return HttpResponse.json({ status: 404 }, { status: 404 });
+    const copie = nouvelleCopie(n.id);
+    return new HttpResponse('%PDF-1.7 faux', {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename=certificat-${n.numeroActe}-copie-${copie}.pdf`,
+        'X-Numero-Copie': String(copie),
+      },
+    });
+  }),
+
+  http.get('/api/naissances/:id/rectifications', ({ params }) =>
+    HttpResponse.json((rectifications[String(params.id)] ?? []).map(({ ancienCode: _, ...r }) => r)),
+  ),
+
+  // Comme l'API : 409 si version périmée, 422 si rien ne change, nouveau code de vérification.
+  http.post('/api/naissances/:id/rectifications', async ({ params, request }) => {
+    const { donnees, motif, version } = (await request.json()) as {
+      donnees: EnregistrerNaissanceRequete;
+      motif: string;
+      version: string;
+    };
+    const n = db.find((x) => x.id === params.id);
+    if (!n) return HttpResponse.json({ status: 404 }, { status: 404 });
+    if (n.version !== version) {
+      return HttpResponse.json({ status: 409, title: 'Conflit de modification' }, { status: 409 });
+    }
+    const changements = (['prenom', 'nom', 'commune', 'ville', 'etablissement'] as const)
+      .filter((c) => n[c] !== donnees[c])
+      .map((c) => ({ champ: c, ancienneValeur: n[c], nouvelleValeur: donnees[c] }));
+    if (changements.length === 0) {
+      return HttpResponse.json(
+        { status: 422, detail: 'Aucune modification.', errors: { general: ['Aucune modification.'] } },
+        { status: 422 },
+      );
+    }
+    const date = '2026-11-19T15:00:00';
+    (rectifications[n.id] ??= []).unshift({
+      dateRectificationUtc: date,
+      rectifiePar: utilisateurTest.courriel,
+      motif,
+      changements,
+      ancienCode: n.codeVerification,
+    });
+    Object.assign(n, donnees, {
+      codeVerification: 'NEUF2345',
+      dateDerniereRectificationUtc: date,
+      version: 'RECTIFIEE=',
+    });
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // Comme l'API : saisie tolérante (minuscules, tiret) et infos minimales ; ancien code → « remplacé ».
   http.get('/api/verification/:code', ({ params }) => {
     const code = String(params.code).toUpperCase().replace(/[-\s]/g, '');
-    const n = db.find((x) => x.codeVerification === code);
+    let n = db.find((x) => x.codeVerification === code);
+    let rectification = null;
+    if (!n) {
+      for (const [id, liste] of Object.entries(rectifications)) {
+        const r = liste.find((x) => x.ancienCode === code);
+        if (r) {
+          n = db.find((x) => x.id === id);
+          rectification = r;
+        }
+      }
+    }
     if (!n) return HttpResponse.json({ status: 404, title: 'Certificat introuvable' }, { status: 404 });
     return HttpResponse.json({
       numeroActe: n.numeroActe,
@@ -153,6 +225,8 @@ export const handlers = [
       commune: n.commune,
       statut: n.statut,
       dateEnregistrementUtc: n.dateEnregistrementUtc,
+      dateRectificationUtc: rectification?.dateRectificationUtc ?? n.dateDerniereRectificationUtc ?? null,
+      remplace: rectification !== null,
     });
   }),
 

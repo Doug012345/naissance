@@ -163,7 +163,7 @@ resource "azurerm_container_app" "api" {
   }
 
   template {
-    min_replicas = 0 # s'éteint quand personne ne s'en sert (coût ≈ 0)
+    min_replicas = 1 # toujours allumée : évite ~20 s de démarrage à froid (≈ 8-10 $ US/mois)
     max_replicas = 2
 
     container {

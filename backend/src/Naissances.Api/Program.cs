@@ -14,6 +14,8 @@ builder.Services.AjouterInfrastructure(builder.Configuration);
 builder.Services.AddScoped<EnregistrerNaissance>();
 builder.Services.AddScoped<AnnulerNaissance>();
 builder.Services.AddScoped<DelivrerCertificat>();
+builder.Services.AddScoped<RectifierNaissance>();
+builder.Services.AddScoped<TelechargerCertificat>();
 builder.Services.AjouterLimiteVerification();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AjouterAuthentification(builder.Configuration, builder.Environment);

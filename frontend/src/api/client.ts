@@ -40,6 +40,17 @@ export class ApiError extends Error {
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? '';
 
+async function verifier(res: Response) {
+  if (res.ok) return;
+  let problem: ProblemDetails = { status: res.status };
+  try {
+    problem = (await res.json()) as ProblemDetails;
+  } catch {
+    /* corps vide ou non-JSON : on garde le statut seul */
+  }
+  throw new ApiError(res.status, problem);
+}
+
 export async function http<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     ...init,
@@ -50,18 +61,41 @@ export async function http<T>(path: string, init: RequestInit = {}): Promise<T> 
     },
   });
 
-  if (!res.ok) {
-    let problem: ProblemDetails = { status: res.status };
-    try {
-      problem = (await res.json()) as ProblemDetails;
-    } catch {
-      /* corps vide ou non-JSON : on garde le statut seul */
-    }
-    throw new ApiError(res.status, problem);
-  }
+  await verifier(res);
 
   if (res.status === 204 || res.headers.get('content-length') === '0') {
     return undefined as T;
   }
   return (await res.json()) as T;
+}
+
+export interface Fichier {
+  contenu: Blob;
+  nom: string;
+  /** En-tête X-Numero-Copie (certificat PDF). */
+  numeroCopie: number | null;
+}
+
+/** POST qui renvoie un fichier (PDF…) : nom tiré de Content-Disposition. */
+export async function telecharger(path: string): Promise<Fichier> {
+  const res = await fetch(`${BASE_URL}${path}`, { method: 'POST', headers: { Accept: 'application/pdf' } });
+  await verifier(res);
+
+  const disposition = res.headers.get('content-disposition') ?? '';
+  const nom =
+    /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1] ?? /filename="?([^";]+)"?/i.exec(disposition)?.[1] ?? 'document.pdf';
+  const copie = res.headers.get('x-numero-copie');
+  return { contenu: await res.blob(), nom: decodeURIComponent(nom), numeroCopie: copie ? Number(copie) : null };
+}
+
+/** Propose le fichier à l'enregistrement (lien temporaire, libéré aussitôt). */
+export function enregistrerFichier({ contenu, nom }: Fichier) {
+  const url = URL.createObjectURL(contenu);
+  const lien = document.createElement('a');
+  lien.href = url;
+  lien.download = nom;
+  document.body.appendChild(lien);
+  lien.click();
+  lien.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
