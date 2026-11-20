@@ -15,7 +15,7 @@ describe('Certificat imprimable', () => {
   it('est accessible depuis la fiche', async () => {
     const user = userEvent.setup();
     const { router } = renderApp(urlLea);
-    await user.click(await screen.findByRole('link', { name: /Certificat à imprimer/ }));
+    await user.click(await screen.findByRole('link', { name: /Certificat \(imprimer ou PDF\)/ }));
     expect(router.state.location.pathname).toBe(`${urlLea}/certificat`);
   });
 
@@ -56,6 +56,35 @@ describe('Certificat imprimable', () => {
     await user.click(await screen.findByRole('button', { name: /Imprimer le certificat/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/Impossible de préparer l’impression/);
     expect(window.print).not.toHaveBeenCalled();
+  });
+
+  it('télécharge le PDF fabriqué par l’API (copie journalisée)', async () => {
+    const creerUrl = vi.fn(() => 'blob:certificat');
+    Object.assign(URL, { createObjectURL: creerUrl, revokeObjectURL: vi.fn() });
+    const clic = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const user = userEvent.setup();
+    renderApp(`${urlLea}/certificat`);
+
+    await user.click(await screen.findByRole('button', { name: /Télécharger \(PDF\)/ }));
+
+    expect(await screen.findByText(/PDF téléchargé : copie n° 1/)).toBeInTheDocument();
+    expect(creerUrl).toHaveBeenCalledTimes(1);
+    expect(clic).toHaveBeenCalledTimes(1);
+    expect((clic.mock.contexts[0] as HTMLAnchorElement).download).toBe('certificat-N-2026-000001-copie-1.pdf');
+    expect(window.print).not.toHaveBeenCalled();
+  });
+
+  it('signale un échec de génération du PDF', async () => {
+    server.use(
+      http.post('/api/naissances/:id/certificat.pdf', () =>
+        HttpResponse.json({ title: 'Erreur inattendue' }, { status: 500 }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderApp(`${urlLea}/certificat`);
+
+    await user.click(await screen.findByRole('button', { name: /Télécharger \(PDF\)/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Impossible de générer le PDF/);
   });
 
   it('porte le filigrane « ANNULÉ » pour un acte annulé', async () => {
@@ -115,6 +144,21 @@ describe('Vérification publique (cible du QR code)', () => {
     );
     renderApp('/verifier/K7QF-9M2X');
     expect(await screen.findByRole('heading', { name: /ANNULÉ/ })).toBeInTheDocument();
+  });
+
+  it('signale un certificat REMPLACÉ (imprimé avant une rectification)', async () => {
+    server.use(
+      http.get('/api/verification/:code', () =>
+        HttpResponse.json({
+          numeroActe: 'N-2026-000001', initialesEnfant: 'L. T.', dateNaissance: '2026-11-10',
+          commune: 'Montréal', statut: 'Enregistree', dateEnregistrementUtc: '2026-11-10T15:00:00',
+          dateRectificationUtc: '2026-11-19T15:00:00', remplace: true,
+        }),
+      ),
+    );
+    renderApp('/verifier/K7QF-9M2X');
+    expect(await screen.findByRole('heading', { name: /REMPLACÉ/ })).toBeInTheDocument();
+    expect(screen.getByText(/imprimé avant une rectification/)).toHaveTextContent('19 novembre 2026');
   });
 
   it('explique la limite de requêtes (429)', async () => {

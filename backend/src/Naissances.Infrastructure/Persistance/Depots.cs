@@ -17,6 +17,9 @@ internal sealed class NaissanceRepository(NaissancesDbContext db) : INaissanceRe
 
     public void AjouterDelivrance(DelivranceCertificat delivrance) => db.DelivrancesCertificat.Add(delivrance);
 
+    public void AjouterRectification(RectificationNaissance rectification) =>
+        db.RectificationsNaissance.Add(rectification);
+
     public void DefinirVersionAttendue(Naissance naissance, byte[] version) =>
         db.Entry(naissance).Property(n => n.Version).OriginalValue = version;
 
@@ -77,22 +80,48 @@ internal sealed class LectureNaissances(NaissancesDbContext db) : ILectureNaissa
             new ParentDto(n.Mere.Identite.Prenom, n.Mere.Identite.Nom, n.Mere.DateNaissance),
             n.SecondParent is null ? null
                 : new ParentDto(n.SecondParent.Identite.Prenom, n.SecondParent.Identite.Nom, n.SecondParent.DateNaissance),
-            n.Statut, n.MotifAnnulation, n.DateEnregistrementUtc,
+            n.Statut, n.MotifAnnulation, n.DateEnregistrementUtc, n.DateDerniereRectificationUtc,
             Convert.ToBase64String(n.Version));
     }
 
     public async Task<VerificationDto?> VerifierAsync(string code, CancellationToken ct)
     {
+        // 1) Code actuel de l'acte → certificat à jour.
         var n = await db.Naissances.AsNoTracking()
             .Where(x => x.CodeVerification == code)
             .Select(x => new { x.NumeroActe, x.Enfant.Prenom, x.Enfant.Nom, x.DateHeureNaissance,
-                               x.Commune, x.Statut, x.DateEnregistrementUtc })
+                               x.Commune, x.Statut, x.DateEnregistrementUtc, x.DateDerniereRectificationUtc })
             .FirstOrDefaultAsync(ct);
-        if (n is null) return null;
+        if (n is not null)
+            return new VerificationDto(
+                n.NumeroActe, Identite.Initiales(n.Prenom, n.Nom), DateOnly.FromDateTime(n.DateHeureNaissance),
+                n.Commune, n.Statut, n.DateEnregistrementUtc, n.DateDerniereRectificationUtc, Remplace: false);
+
+        // 2) Ancien code (certificat imprimé avant une rectification) → « remplacé ».
+        var r = await (from rect in db.RectificationsNaissance.AsNoTracking()
+                       join x in db.Naissances.AsNoTracking() on rect.NaissanceId equals x.Id
+                       where rect.AncienCodeVerification == code
+                       select new { x.NumeroActe, x.Enfant.Prenom, x.Enfant.Nom, x.DateHeureNaissance,
+                                    x.Commune, x.Statut, x.DateEnregistrementUtc, rect.DateRectificationUtc })
+                      .FirstOrDefaultAsync(ct);
+        if (r is null) return null;
 
         return new VerificationDto(
-            n.NumeroActe, Identite.Initiales(n.Prenom, n.Nom), DateOnly.FromDateTime(n.DateHeureNaissance),
-            n.Commune, n.Statut, n.DateEnregistrementUtc);
+            r.NumeroActe, Identite.Initiales(r.Prenom, r.Nom), DateOnly.FromDateTime(r.DateHeureNaissance),
+            r.Commune, r.Statut, r.DateEnregistrementUtc, r.DateRectificationUtc, Remplace: true);
+    }
+
+    public async Task<IReadOnlyList<RectificationDto>> ListerRectificationsAsync(Guid naissanceId, CancellationToken ct)
+    {
+        var liste = await db.RectificationsNaissance.AsNoTracking()
+            .Where(r => r.NaissanceId == naissanceId)
+            .OrderByDescending(r => r.DateRectificationUtc)
+            .ToListAsync(ct);
+
+        return liste.Select(r => new RectificationDto(
+                r.DateRectificationUtc, r.RectifiePar, r.Motif,
+                r.Changements.Select(c => new ChangementDto(c.Champ, c.AncienneValeur, c.NouvelleValeur)).ToList()))
+            .ToList();
     }
 }
 

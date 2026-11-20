@@ -1,4 +1,4 @@
-import { http } from './client';
+import { http, telecharger } from './client';
 
 // Types miroir des DTO C# (Naissances.Application/Naissances/Contrats.cs).
 // En projet réel : générés depuis /openapi/v1.json (openapi-typescript, orval…).
@@ -50,6 +50,8 @@ export interface NaissanceDetail {
   statut: StatutNaissance;
   motifAnnulation: string | null;
   dateEnregistrementUtc: string;
+  /** Date de la dernière rectification (absente ou null si jamais rectifié). */
+  dateDerniereRectificationUtc?: string | null;
   version: string;
 }
 
@@ -82,6 +84,24 @@ export interface Verification {
   commune: string;
   statut: StatutNaissance;
   dateEnregistrementUtc: string;
+  /** Rectification de l'acte (si remplace : celle qui a rendu ce certificat obsolète). */
+  dateRectificationUtc?: string | null;
+  /** true : code d'un certificat imprimé AVANT une rectification → plus à jour. */
+  remplace?: boolean;
+}
+
+export interface Changement {
+  champ: string;
+  ancienneValeur: string;
+  nouvelleValeur: string;
+}
+
+/** Une entrée de l'historique des rectifications. */
+export interface Rectification {
+  dateRectificationUtc: string;
+  rectifiePar: string;
+  motif: string;
+  changements: Changement[];
 }
 
 /** « K7QF9M2X » → « K7QF-9M2X » (plus facile à lire et à recopier). */
@@ -122,6 +142,22 @@ export const naissancesApi = {
 
   delivrer(id: string) {
     return http<Delivrance>(`/api/naissances/${id}/delivrances`, { method: 'POST' });
+  },
+
+  rectifier(id: string, donnees: EnregistrerNaissanceRequete, motif: string, version: string) {
+    return http<void>(`/api/naissances/${id}/rectifications`, {
+      method: 'POST',
+      body: JSON.stringify({ donnees, motif, version }),
+    });
+  },
+
+  rectifications(id: string, signal?: AbortSignal) {
+    return http<Rectification[]>(`/api/naissances/${id}/rectifications`, { signal });
+  },
+
+  /** PDF fabriqué par l'API : chaque téléchargement est une copie numérotée et journalisée. */
+  telechargerPdf(id: string) {
+    return telecharger(`/api/naissances/${id}/certificat.pdf`);
   },
 
   verifier(code: string, signal?: AbortSignal) {

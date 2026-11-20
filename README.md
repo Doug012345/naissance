@@ -17,7 +17,7 @@ naissances/
 │   ├── src/
 │   │   ├── Naissances.Domain/         Entité Naissance, objets valeur, règles métier (0 dépendance)
 │   │   ├── Naissances.Application/    Cas d'utilisation, interfaces, DTO (dépend du Domaine)
-│   │   ├── Naissances.Infrastructure/ EF Core + SQL Server (implémente les interfaces)
+│   │   ├── Naissances.Infrastructure/ EF Core + SQL Server, certificat PDF (QuestPDF + QRCoder)
 │   │   └── Naissances.Api/            Minimal API, ProblemDetails, composition root
 │   └── tests/Naissances.Domain.Tests/ xUnit
 └── frontend/                        (React 19 + Vite + TypeScript — VS Code)
@@ -28,8 +28,8 @@ naissances/
         ├── components/                Champ accessible, ChampMotDePasse (œil), ErrorBoundary, Layout, Pagination
         ├── hooks/                     useDebouncedValue
         ├── features/auth/             session, garde de route, connexion, changement de mot de passe
-        ├── features/naissances/       schéma Zod, hooks TanStack Query, formulaire, pages, tests
-        ├── features/certificat/       certificat imprimable (sceau, QR code), page publique /verifier
+        ├── features/naissances/       schéma Zod, hooks TanStack Query, formulaire, pages (dont rectification), tests
+        ├── features/certificat/       certificat imprimable / PDF (sceau, QR code), page publique /verifier
         └── test/                      MSW (faux serveur), setup Vitest
 ```
 
@@ -39,7 +39,7 @@ naissances/
 # 1) Backend (SQL Server local, voir appsettings.json)
 cd backend
 dotnet tool install --global dotnet-ef        # une seule fois
-# Les migrations (Initiale, Identite, ClesProtection, CertificatVerification) sont déjà dans
+# Les migrations (Initiale, Identite, ClesProtection, CertificatVerification, RectificationNaissance) sont déjà dans
 # src/Naissances.Infrastructure/Migrations.
 # ⚠️ appsettings.json pointe vers la base Azure (db-naissances) : « dotnet run » et
 #    « dotnet ef database update » appliquent les migrations EN PRODUCTION.
@@ -118,14 +118,20 @@ Internet ──▶ ca-naissances-web (nginx, public, naissance.anmbo.ca)
 | Environnement | `cae-naissances` | créé (Consumption) |
 | Registre d'images | `acrnaissancesdoudou` | créé (Basic, compte admin désactivé) |
 | Identités | `id-naissances-api`, `id-naissances-web` | créées ; seule l'API a accès à la base |
-| Applications | `ca-naissances-api` (interne), `ca-naissances-web` (public) | créées quand `image_tag` est renseigné ; 0 à 2 réplicas |
+| Applications | `ca-naissances-api` (interne), `ca-naissances-web` (public) | créées quand `image_tag` est renseigné ; API 1 à 2 réplicas, site 0 à 2 |
 
 Choix :
 * **Import** plutôt que recréation : `imports.tf` (blocs `import`, Terraform ≥ 1.5). Le 1er plan n'ajoute que des étiquettes.
 * **Aucun secret** : l'API se connecte à SQL avec `Authentication=Active Directory Managed Identity`, et tire
   ses images par identité. Le compte de connexion existe déjà dans la base (créé en dev).
 * **API interne** : seul nginx (le site) peut l'appeler ; même origine → cookie `SameSite=Strict` inchangé.
-* **`min_replicas = 0`** : les conteneurs s'éteignent sans visiteurs (1er appel un peu plus lent).
+* **API toujours allumée (`min_replicas = 1`)** : avec 0, l'API s'éteignait sans visiteurs et le 1er appel
+  après une pause attendait ~20 s de démarrage à froid (journaux du 2026-11-19 ; plus de 40 s ressentis à
+  l'enregistrement). Coût estimé : ≈ 8 à 10 $ US/mois (tarif « inactif » Container Apps, moins la part gratuite).
+  Le **site** (nginx) garde `min_replicas = 0` : il démarre en 1 à 2 s.
+* **Onglet ouvert pendant un déploiement** : les fichiers JS ont des noms hachés, les anciens disparaissent.
+  `main.tsx` intercepte `vite:preloadError` et recharge la page une fois (au plus toutes les 10 s) ; `index.html`
+  est servi en `no-cache`, donc le rechargement récupère la nouvelle version.
 * État Terraform **partagé dans Azure** : `rg-naissances-tfstate` / `stnaissancestfstate` / conteneur `tfstate` /
   `naissances.tfstate`. Accès Entra ID seulement (clés désactivées), verrou automatique, versions + corbeille 14 j.
   Il faut le rôle **Storage Blob Data Contributor** sur ce compte pour lancer Terraform.
@@ -279,19 +285,39 @@ Procédure (déjà faite, à refaire seulement pour un autre domaine) :
 
 ---
 
-## Certificat de naissance imprimable
+## Certificat de naissance (impression et PDF)
 
-Fiche d'une naissance → **🖨 Certificat à imprimer** → `/naissances/{id}/certificat` → **Imprimer le certificat**
-(la boîte d'impression du navigateur permet aussi « Enregistrer en PDF »). Format A4.
+Fiche d'une naissance → **🖨 Certificat (imprimer ou PDF)** → `/naissances/{id}/certificat`, puis :
+
+* **Imprimer le certificat** : version HTML, format A4, boîte d'impression du navigateur ;
+* **⬇ Télécharger (PDF)** : `POST /api/naissances/{id}/certificat.pdf`. L'**API** fabrique le PDF (A4,
+  vectoriel, texte sélectionnable) : `Infrastructure/Certificats/GenerateurCertificatPdf.cs`. Fichier
+  `certificat-N-2026-000001-copie-3.pdf`, en-tête `X-Numero-Copie`, `Cache-Control: no-store`. POST et non GET :
+  chaque téléchargement crée une copie journalisée, comme une impression.
 
 | Élément | Détail |
 |---|---|
 | En-tête et sceau | « **Commune de X** » : X = champ **Commune** saisi à l'enregistrement (obligatoire). Sceau rond en SVG, propre à l'application (n'imite aucun sceau officiel) |
 | Code de vérification | 8 caractères aléatoires (générateur cryptographique, alphabet de Crockford sans I/L/O/U), ex. `K7QF-9M2X`, unique par acte |
 | QR code | pointe vers `https://naissance.anmbo.ca/verifier/K7QF-9M2X` |
-| Copie n° | chaque impression appelle d'abord `POST /api/naissances/{id}/delivrances` : la copie est **journalisée** (table `etatcivil.DelivrancesCertificat` : qui, quand, n°) puis imprimée |
+| Copie n° | chaque impression appelle d'abord `POST /api/naissances/{id}/delivrances` ; chaque PDF passe par le même cas d'utilisation. La copie est **journalisée** (table `etatcivil.DelivrancesCertificat` : qui, quand, n°) |
 | Anti-copie | fond guilloché et micro-texte (une photocopie les rend flous) |
 | Acte annulé | imprimable, mais avec un grand filigrane rouge **ANNULÉ** |
+| Acte rectifié | ligne « Acte rectifié le … » ; le code (et donc le QR) est **nouveau** après chaque rectification |
+
+**PDF côté serveur — détails techniques**
+
+* **QuestPDF** (mise en page) + **QRCoder** (QR code dessiné en vecteurs). La police **Lato** est livrée avec
+  QuestPDF : rien à installer dans l'image Docker Linux (vérifié dans le conteneur).
+* Sceau : anneaux et étoiles en SVG, lettres posées une à une sur le cercle (QuestPDF n'a pas de « texte sur
+  un chemin »). Dates en français écrites par le code (ne dépend pas de la culture du conteneur), à l'heure du
+  Québec (`America/Toronto`).
+* Le QR code pointe vers `Certificat:UrlSite` (`appsettings.json` : `https://naissance.anmbo.ca` ;
+  docker compose : `http://localhost:8080`).
+* ⚠️ **Licence QuestPDF « Community »** : gratuite pour un particulier ou une organisation de moins de
+  1 M$ US de revenus annuels, **mais pas pour les organismes publics ou gouvernementaux**, quels que soient
+  leurs revenus. Si une vraie commune utilise l'application, il faut une licence payante ou une autre
+  bibliothèque (PDFsharp/MigraDoc, licence MIT).
 
 **Pourquoi un QR code ?** Un sceau imprimé se recopie facilement. Ce qui prouve qu'un certificat est
 authentique, c'est la page de vérification : elle interroge la base au moment du scan.
@@ -300,13 +326,47 @@ authentique, c'est la page de vérification : elle interroge la base au moment d
 
 | Route API | Résultat |
 |---|---|
-| `GET /api/verification/{code}` | 200 `{ numeroActe, initialesEnfant, dateNaissance, commune, statut, dateEnregistrementUtc }`, 404 si inconnu, **429** au-delà de 20 requêtes/minute par adresse IP |
+| `GET /api/verification/{code}` | 200 `{ numeroActe, initialesEnfant, dateNaissance, commune, statut, dateEnregistrementUtc, dateRectificationUtc, remplace }`, 404 si inconnu, **429** au-delà de 20 requêtes/minute par adresse IP |
+
+* `remplace: true` : code d'un certificat imprimé **avant** une rectification. La page affiche
+  « ⚠️ Certificat REMPLACÉ (acte rectifié) » avec la date de la rectification.
 
 * Loi 25 / vie privée : seulement les **initiales** de l'enfant, aucun parent ni lieu précis. La personne
   qui vérifie compare avec le papier qu'elle a en main.
 * Saisie tolérante : minuscules, tirets, espaces, et `O`→`0`, `I`/`L`→`1`.
 * Les actes enregistrés avant cette fonctionnalité ont reçu, par la migration `CertificatVerification`,
   un code aléatoire et une commune égale à leur ville.
+
+---
+
+## Rectification d'un acte
+
+Un acte d'état civil ne se « modifie » pas en silence : il se **rectifie**, et chaque changement reste tracé.
+
+Fiche → **✏️ Rectifier** (acte *Enregistré* seulement) → `/naissances/{id}/rectifier` : le formulaire de
+déclaration, prérempli, avec un **motif obligatoire** (10 à 500 caractères).
+
+| Règle | Où |
+|---|---|
+| Acte annulé → refus | `Naissance.Rectifier` (domaine) |
+| Aucune modification → 422 « Aucune modification » | domaine |
+| Mêmes règles qu'à l'enregistrement (poids, taille, âge des parents…) | domaine (méthode `Valider` partagée) + Zod |
+| Date de naissance : au plus 30 jours **avant l'enregistrement de l'acte**, et pas après lui (et non plus 30 jours avant aujourd'hui) | domaine + Zod (`dateReference`) |
+| Ne changent jamais : numéro d'acte, date d'enregistrement, journal des copies | domaine |
+| Nouveau **code de vérification** ; l'ancien est gardé dans l'historique | domaine |
+| Deux agents en même temps → **409** (rowversion), le formulaire se recharge avec un message | API + `RectificationPage` |
+
+| Route API | Résultat |
+|---|---|
+| `POST /api/naissances/{id}/rectifications` | corps `{ donnees: { …mêmes champs que l'enregistrement }, motif, version }` → 204 ; 422 ; 409 |
+| `GET /api/naissances/{id}/rectifications` | historique, le plus récent d'abord : `{ dateRectificationUtc, rectifiePar, motif, changements: [{ champ, ancienneValeur, nouvelleValeur }] }` |
+
+* Table `etatcivil.RectificationsNaissance` (migration `RectificationNaissance`) : agent, date, motif,
+  `AncienCodeVerification` (index unique, cherché par la page publique) et une colonne JSON `Changements`.
+  Nouvelle colonne `Naissances.DateDerniereRectificationUtc`. La migration ne fait qu'**ajouter** :
+  aucune donnée existante n'est modifiée.
+* La fiche affiche « Dernière rectification » et l'**historique** (avant barré en rouge, après en vert).
+* Tous les agents connectés peuvent rectifier (pas encore de rôles, voir « Pistes d'évolution »).
 
 ---
 
@@ -383,6 +443,11 @@ Si l'URL change de l'extérieur (Précédent), la saisie est resynchronisée par
 * Couverts : règles Zod, erreurs sous les champs, mapping d'un 422, recherche debounce → URL,
   lecture des filtres depuis l'URL, 404, 500 + Réessayer, annulation optimiste, rollback sur 409,
   création → redirection + message flash.
+* Certificat : impression journalisée, téléchargement PDF (nom du fichier, n° de copie, erreur), filigrane
+  ANNULÉ, vérification publique (authentique, inconnu, annulé, **remplacé**, 429).
+* Rectification : formulaire prérempli, historique avant → après, nouveau code, motif obligatoire, date
+  postérieure à l'enregistrement refusée, 409, pas de bouton sur un acte annulé.
+* `setup.ts` : `asyncUtilTimeout` à 3 s (au lieu de 1 s) pour éviter de faux échecs sur un agent CI chargé.
 * Authentification : redirection vers `/connexion` puis retour, identifiants invalides, œil
   afficher/masquer, déconnexion, 401 → reconnexion, changement de mot de passe (succès, 422, confirmation),
   règles Zod du nouveau mot de passe.
@@ -400,5 +465,6 @@ Si l'URL change de l'extérieur (Précédent), la saisie est resynchronisée par
 * Tests d'intégration API avec `WebApplicationFactory` + Testcontainers SQL Server.
 * Key Vault le jour où un secret sera nécessaire (aujourd'hui : aucun, tout passe par identité managée).
 * Tests d'intégration de l'API dans le pipeline (SQL Server en conteneur de service).
-* Certificat : PDF généré côté serveur et signé numériquement, si un jour un PDF « officiel » est exigé.
+* Certificat PDF **signé numériquement** (certificat X.509 dans Key Vault), si un jour un PDF « officiel » est exigé.
+* Rôle « superviseur » obligatoire pour rectifier un acte.
 * Une base de **développement** séparée (aujourd'hui `appsettings.json` pointe vers la production).

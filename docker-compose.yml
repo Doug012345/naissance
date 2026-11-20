@@ -36,6 +36,8 @@ services:
       CompteInitial__MotDePasse: ${COMPTE_MOT_DE_PASSE:?Définissez COMPTE_MOT_DE_PASSE dans .env}
       # Local en http : le cookie ne peut pas exiger HTTPS. En Azure, il reste obligatoire.
       Authentification__CookieHttpsObligatoire: "false"
+      # QR code du certificat PDF : pointe vers le site local.
+      Certificat__UrlSite: "http://localhost:8080"
     depends_on:
       sql:
         condition: service_healthy

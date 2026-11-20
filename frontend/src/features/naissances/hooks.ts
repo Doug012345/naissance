@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-query';
 import {
   naissancesApi,
+  type EnregistrerNaissanceRequete,
   type FiltresNaissances,
   type NaissanceDetail,
   type NaissanceResume,
@@ -23,6 +24,7 @@ export const naissancesKeys = {
   liste: (f: FiltresNaissances) => [...naissancesKeys.listes(), f] as const,
   details: () => [...naissancesKeys.all, 'detail'] as const,
   detail: (id: string) => [...naissancesKeys.details(), id] as const,
+  rectifications: (id: string) => [...naissancesKeys.detail(id), 'rectifications'] as const,
 };
 
 /** queryOptions : réutilisable dans useQuery, prefetchQuery, loaders du routeur… */
@@ -51,6 +53,40 @@ export function useNaissance(id: string) {
 /** Journalise une copie du certificat juste avant l'impression (renvoie le n° de copie). */
 export function useDelivrerCertificat() {
   return useMutation({ mutationFn: (id: string) => naissancesApi.delivrer(id) });
+}
+
+/** Télécharge le certificat PDF (copie journalisée côté serveur). */
+export function useTelechargerCertificat() {
+  return useMutation({ mutationFn: (id: string) => naissancesApi.telechargerPdf(id) });
+}
+
+/** Historique des rectifications d'un acte. */
+export function useRectifications(id: string) {
+  return useQuery({
+    queryKey: naissancesKeys.rectifications(id),
+    queryFn: ({ signal }) => naissancesApi.rectifications(id, signal),
+  });
+}
+
+interface RectifierVariables {
+  id: string;
+  donnees: EnregistrerNaissanceRequete;
+  motif: string;
+  version: string;
+}
+
+/** Rectification : on resynchronise la fiche (nouveau code, nouvelle version), l'historique et les listes. */
+export function useRectifierNaissance() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, donnees, motif, version }: RectifierVariables) =>
+      naissancesApi.rectifier(id, donnees, motif, version),
+    onSettled: (_data, _err, { id }) =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: naissancesKeys.detail(id) }), // inclut l'historique
+        qc.invalidateQueries({ queryKey: naissancesKeys.listes() }),
+      ]),
+  });
 }
 
 /** Page publique : vérifie un code de certificat (pas de cache partagé avec l'espace connecté). */

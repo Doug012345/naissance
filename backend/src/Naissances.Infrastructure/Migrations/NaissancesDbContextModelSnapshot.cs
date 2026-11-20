@@ -286,6 +286,9 @@ namespace Naissances.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
+                    b.Property<DateTime?>("DateDerniereRectificationUtc")
+                        .HasColumnType("datetime2(0)");
+
                     b.Property<DateTime>("DateEnregistrementUtc")
                         .HasColumnType("datetime2(0)");
 
@@ -345,6 +348,44 @@ namespace Naissances.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("Naissances", "etatcivil");
+                });
+
+            modelBuilder.Entity("Naissances.Domain.Naissances.RectificationNaissance", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AncienCodeVerification")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .IsUnicode(false)
+                        .HasColumnType("char(8)")
+                        .IsFixedLength();
+
+                    b.Property<DateTime>("DateRectificationUtc")
+                        .HasColumnType("datetime2(0)");
+
+                    b.Property<string>("Motif")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<Guid>("NaissanceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("RectifiePar")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AncienCodeVerification")
+                        .IsUnique();
+
+                    b.HasIndex("NaissanceId");
+
+                    b.ToTable("RectificationsNaissance", "etatcivil");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
@@ -533,6 +574,45 @@ namespace Naissances.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("SecondParent");
+                });
+
+            modelBuilder.Entity("Naissances.Domain.Naissances.RectificationNaissance", b =>
+                {
+                    b.HasOne("Naissances.Domain.Naissances.Naissance", null)
+                        .WithMany()
+                        .HasForeignKey("NaissanceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.OwnsMany("Naissances.Domain.Naissances.ChangementChamp", "Changements", b1 =>
+                        {
+                            b1.Property<Guid>("RectificationNaissanceId");
+
+                            b1.Property<int>("__synthesizedOrdinal")
+                                .ValueGeneratedOnAddOrUpdate();
+
+                            b1.Property<string>("AncienneValeur")
+                                .IsRequired();
+
+                            b1.Property<string>("Champ")
+                                .IsRequired();
+
+                            b1.Property<string>("NouvelleValeur")
+                                .IsRequired();
+
+                            b1.HasKey("RectificationNaissanceId", "__synthesizedOrdinal");
+
+                            b1.ToTable("RectificationsNaissance", "etatcivil");
+
+                            b1
+                                .ToJson("Changements")
+                                .HasColumnType("nvarchar(max)");
+
+                            b1.WithOwner()
+                                .HasForeignKey("RectificationNaissanceId");
+                        });
+
+                    b.Navigation("Changements");
                 });
 #pragma warning restore 612, 618
         }

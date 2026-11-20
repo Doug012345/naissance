@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { EnregistrerNaissanceRequete } from '../../api/naissances';
+import type { EnregistrerNaissanceRequete, NaissanceDetail } from '../../api/naissances';
 
 /**
  * Schéma Zod = validation côté client (UX immédiate).
@@ -22,7 +22,19 @@ function ageEnAnnees(naissance: Date, reference: Date) {
   return age;
 }
 
-export function creerSchemaNaissance(maintenant: () => Date = () => new Date()) {
+export interface OptionsSchema {
+  /**
+   * Rectification : date d'enregistrement de l'acte. La naissance doit rester dans les 30 jours
+   * AVANT cette date (et pas après), au lieu des 30 jours avant aujourd'hui.
+   */
+  dateReference?: Date;
+  /** Rectification : motif obligatoire (10 caractères minimum). */
+  avecMotif?: boolean;
+}
+
+export function creerSchemaNaissance(maintenant: () => Date = () => new Date(), options: OptionsSchema = {}) {
+  const { dateReference, avecMotif = false } = options;
+  const reference = () => dateReference ?? maintenant();
   const parentPartiel = z.object({
     prenom: z.string(),
     nom: z.string(),
@@ -39,8 +51,14 @@ export function creerSchemaNaissance(maintenant: () => Date = () => new Date()) 
         .min(1, 'La date et l’heure sont obligatoires.')
         .refine((v) => new Date(v) <= maintenant(), 'La date ne peut pas être dans le futur.')
         .refine(
-          (v) => new Date(v).getTime() >= maintenant().getTime() - 30 * JOUR_MS,
-          'La déclaration doit être faite dans les 30 jours.',
+          (v) => new Date(v).getTime() >= reference().getTime() - 30 * JOUR_MS,
+          dateReference
+            ? 'La date doit rester dans les 30 jours précédant l’enregistrement de l’acte.'
+            : 'La déclaration doit être faite dans les 30 jours.',
+        )
+        .refine(
+          (v) => !dateReference || new Date(v) <= dateReference,
+          'La naissance ne peut pas être postérieure à l’enregistrement de l’acte.',
         ),
       etablissement: texte('L’établissement', 200),
       ville: texte('La ville'),
@@ -61,6 +79,7 @@ export function creerSchemaNaissance(maintenant: () => Date = () => new Date()) 
       }),
       avecSecondParent: z.boolean(),
       secondParent: parentPartiel,
+      motif: z.string(),
     })
     // Règles qui dépendent de PLUSIEURS champs → superRefine, avec `path` pour
     // que l'erreur s'affiche sous le bon input.
@@ -76,6 +95,14 @@ export function creerSchemaNaissance(maintenant: () => Date = () => new Date()) 
       };
 
       verifierAge(d.mere.dateNaissance, ['mere', 'dateNaissance']);
+
+      if (avecMotif) {
+        const longueur = d.motif.trim().length;
+        if (longueur < 10)
+          ctx.addIssue({ code: 'custom', path: ['motif'], message: 'Le motif doit contenir au moins 10 caractères.' });
+        else if (longueur > 500)
+          ctx.addIssue({ code: 'custom', path: ['motif'], message: '500 caractères maximum.' });
+      }
 
       if (d.avecSecondParent) {
         const sp = d.secondParent;
@@ -106,7 +133,27 @@ export const valeursParDefaut: NaissanceFormInput = {
   mere: { prenom: '', nom: '', dateNaissance: '' },
   avecSecondParent: false,
   secondParent: { prenom: '', nom: '', dateNaissance: '' },
+  motif: '',
 };
+
+/** Fiche existante → valeurs du formulaire (rectification). */
+export function valeursDepuisDetail(n: NaissanceDetail): NaissanceFormInput {
+  return {
+    prenom: n.prenom,
+    nom: n.nom,
+    sexe: n.sexe,
+    dateHeureNaissance: n.dateHeureNaissance.slice(0, 16), // « 2026-11-10T08:30 » pour datetime-local
+    etablissement: n.etablissement,
+    ville: n.ville,
+    commune: n.commune,
+    poidsGrammes: n.poidsGrammes,
+    tailleCm: n.tailleCm,
+    mere: { ...n.mere },
+    avecSecondParent: n.secondParent !== null,
+    secondParent: n.secondParent ? { ...n.secondParent } : { prenom: '', nom: '', dateNaissance: '' },
+    motif: '',
+  };
+}
 
 /** Valeurs du formulaire → contrat de l'API (le second parent devient null). */
 export function versRequete(v: NaissanceFormValues): EnregistrerNaissanceRequete {
