@@ -34,4 +34,25 @@ export const authApi = {
       body: JSON.stringify(requete),
     });
   },
+
+  /** Répond 202 que le compte existe ou non (on ne révèle pas les comptes). */
+  motDePasseOublie(courriel: string) {
+    return http<void>('/api/auth/mot-de-passe-oublie', {
+      method: 'POST',
+      body: JSON.stringify({ courriel }),
+    });
+  },
+
+  reinitialiser(requete: ReinitialisationRequete) {
+    return http<void>('/api/auth/reinitialisation', {
+      method: 'POST',
+      body: JSON.stringify(requete),
+    });
+  },
 };
+
+export interface ReinitialisationRequete {
+  utilisateurId: string;
+  jeton: string;
+  nouveauMotDePasse: string;
+}

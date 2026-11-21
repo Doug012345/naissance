@@ -13,6 +13,8 @@ namespace Naissances.Api;
 /// </summary>
 internal static class Authentification
 {
+    public const int ValiditeLienMinutes = 30;
+
     public static IServiceCollection AjouterAuthentification(
         this IServiceCollection services, IConfiguration config, IHostEnvironment env)
     {
@@ -37,7 +39,13 @@ internal static class Authentification
             })
             .AddEntityFrameworkStores<NaissancesDbContext>()
             .AddSignInManager()
+            .AddDefaultTokenProviders() // jetons de réinitialisation du mot de passe
             .AddErrorDescriber<ErreursIdentiteFr>();
+
+        // Lien « mot de passe oublié » : court et à usage unique (le jeton est lié au « security stamp »,
+        // qui change dès que le mot de passe change). Chiffré par les clés Data Protection partagées.
+        services.Configure<DataProtectionTokenProviderOptions>(o =>
+            o.TokenLifespan = TimeSpan.FromMinutes(ValiditeLienMinutes));
 
         services.ConfigureApplicationCookie(o =>
         {
@@ -102,4 +110,9 @@ internal sealed class ErreursIdentiteFr : IdentityErrorDescriber
         new() { Code = nameof(PasswordRequiresNonAlphanumeric), Description = "Au moins un caractère spécial." };
     public override IdentityError DuplicateEmail(string email) =>
         new() { Code = nameof(DuplicateEmail), Description = $"Le courriel {email} est déjà utilisé." };
+    public override IdentityError InvalidToken() =>
+        new() { Code = nameof(InvalidToken), Description = MessageLienInvalide };
+
+    public const string MessageLienInvalide =
+        "Ce lien n’est plus valide (expiré ou déjà utilisé). Faites une nouvelle demande.";
 }

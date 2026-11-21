@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Naissances.Api;
+using Naissances.Api.Courriels;
 using Naissances.Api.Endpoints;
 using Naissances.Application.Naissances;
 using Naissances.Infrastructure;
@@ -19,6 +20,7 @@ builder.Services.AddScoped<TelechargerCertificat>();
 builder.Services.AjouterLimiteVerification();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AjouterAuthentification(builder.Configuration, builder.Environment);
+builder.Services.AjouterCourriels(builder.Configuration); // « mot de passe oublié » (Resend)
 
 // Clés qui chiffrent le cookie de connexion, rangées dans la base SQL (table DataProtectionKeys).
 // Un conteneur a un disque jetable et Azure peut l'éteindre (0 réplica) ou en lancer plusieurs :

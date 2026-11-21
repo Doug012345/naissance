@@ -34,6 +34,16 @@ variable "image_tag" {
   default     = ""
 }
 
+variable "resend_cle_api" {
+  description = <<-EOT
+    Clé API Resend (« Sending access », limitée au domaine anmbo.ca) pour les courriels « mot de passe oublié ».
+    Fournie par le pipeline (variable secrète RESEND_CLE_API). Vide = aucun courriel envoyé (avertissement dans le journal).
+  EOT
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "domaine_personnalise" {
   description = "Nom de domaine du site (enregistrements CNAME + TXT chez GoDaddy)."
   type        = string

@@ -76,6 +76,7 @@ const resume = (n: NaissanceDetail): NaissanceResume => ({
 
 export const utilisateurTest = { courriel: 'agent@exemple.ca' };
 export const MOT_DE_PASSE_TEST = 'Ancien-MotDePasse1';
+export const JETON_VALIDE = 'jeton-valide';
 
 export const handlers = [
   // Par défaut l'utilisateur est connecté ; les tests d'auth surchargent avec server.use().
@@ -102,6 +103,21 @@ export const handlers = [
           title: 'Mot de passe non modifié',
           errors: { motDePasseActuel: ['Le mot de passe actuel est incorrect.'] },
         },
+        { status: 422 },
+      );
+    }
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // Comme l'API : 202 toujours, que le compte existe ou non.
+  http.post('/api/auth/mot-de-passe-oublie', () => new HttpResponse(null, { status: 202 })),
+
+  http.post('/api/auth/reinitialisation', async ({ request }) => {
+    const { jeton } = (await request.json()) as { utilisateurId: string; jeton: string; nouveauMotDePasse: string };
+    if (jeton !== JETON_VALIDE) {
+      const message = 'Ce lien n’est plus valide (expiré ou déjà utilisé). Faites une nouvelle demande.';
+      return HttpResponse.json(
+        { status: 422, title: 'Mot de passe non réinitialisé', detail: message, errors: { jeton: [message] } },
         { status: 422 },
       );
     }
