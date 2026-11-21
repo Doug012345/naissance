@@ -5,14 +5,19 @@ export const LONGUEUR_MIN_MOT_DE_PASSE = 10;
 export const aideMotDePasse =
   `${LONGUEUR_MIN_MOT_DE_PASSE} caractères minimum, avec une majuscule, une minuscule, un chiffre et un caractère spécial.`;
 
+const courriel = z
+  .string()
+  .trim()
+  .min(1, 'Le courriel est obligatoire.')
+  .pipe(z.email('Courriel invalide.'));
+
 export const schemaConnexion = z.object({
-  courriel: z
-    .string()
-    .trim()
-    .min(1, 'Le courriel est obligatoire.')
-    .pipe(z.email('Courriel invalide.')),
+  courriel,
   motDePasse: z.string().min(1, 'Le mot de passe est obligatoire.'),
 });
+
+export const schemaMotDePasseOublie = z.object({ courriel });
+export type MotDePasseOublieValeurs = z.infer<typeof schemaMotDePasseOublie>;
 export type ConnexionValeurs = z.infer<typeof schemaConnexion>;
 
 const nouveauMotDePasse = z
@@ -47,3 +52,14 @@ export const schemaChangementMotDePasse = z
     }
   });
 export type ChangementMotDePasseValeurs = z.infer<typeof schemaChangementMotDePasse>;
+
+export const schemaReinitialisation = z
+  .object({
+    nouveauMotDePasse,
+    confirmation: z.string().min(1, 'Confirmez le nouveau mot de passe.'),
+  })
+  .refine((v) => v.confirmation === v.nouveauMotDePasse, {
+    path: ['confirmation'],
+    message: 'Les deux mots de passe ne correspondent pas.',
+  });
+export type ReinitialisationValeurs = z.infer<typeof schemaReinitialisation>;

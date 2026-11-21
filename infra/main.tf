@@ -162,6 +162,16 @@ resource "azurerm_container_app" "api" {
     }
   }
 
+  # Clé Resend : stockée comme SECRET de la Container App (jamais en clair dans la configuration).
+  # Azure refuse un secret vide : il n'existe que si la clé est fournie.
+  dynamic "secret" {
+    for_each = nonsensitive(var.resend_cle_api != "") ? [1] : []
+    content {
+      name  = "resend-cle-api"
+      value = var.resend_cle_api
+    }
+  }
+
   template {
     min_replicas = 1 # toujours allumée : évite ~20 s de démarrage à froid (≈ 8-10 $ US/mois)
     max_replicas = 2
@@ -179,6 +189,13 @@ resource "azurerm_container_app" "api" {
       env {
         name  = "Demarrage__AppliquerMigrations"
         value = "true"
+      }
+      dynamic "env" {
+        for_each = nonsensitive(var.resend_cle_api != "") ? [1] : []
+        content {
+          name        = "Courriel__ResendCleApi"
+          secret_name = "resend-cle-api"
+        }
       }
 
       liveness_probe {

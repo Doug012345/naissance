@@ -27,7 +27,7 @@ naissances/
         ├── api/                       client fetch + types du contrat
         ├── components/                Champ accessible, ChampMotDePasse (œil), ErrorBoundary, Layout, Pagination
         ├── hooks/                     useDebouncedValue
-        ├── features/auth/             session, garde de route, connexion, changement de mot de passe
+        ├── features/auth/             session, garde de route, connexion, changement / oubli du mot de passe
         ├── features/naissances/       schéma Zod, hooks TanStack Query, formulaire, pages (dont rectification), tests
         ├── features/certificat/       certificat imprimable / PDF (sceau, QR code), page publique /verifier
         └── test/                      MSW (faux serveur), setup Vitest
@@ -198,6 +198,12 @@ Fusion main  ──▶ CI ──▶ Images (push ACR, tag b<numéro>) ──▶ 
 4. **Pipeline** : Pipelines → New pipeline → GitHub (YAML) → `Doug012345/naissance` →
    *Existing Azure Pipelines YAML file* → `/azure-pipelines.yml`.
 5. **GitHub** : Settings → Branches → règle sur `main` → *Require status checks to pass* → le check Azure Pipelines.
+6. **Clé Resend** (courriels « mot de passe oublié ») : Pipelines → *naissance* → Edit → Variables → New →
+   **`RESEND_CLE_API`**, cocher **Keep this value secret**. Le pipeline la passe à `terraform plan`
+   (`TF_VAR_resend_cle_api`), qui la range dans un **secret de la Container App** de l'API. Absente → simple
+   avertissement dans le pipeline, l'application fonctionne mais n'envoie aucun courriel.
+   ⚠️ La clé se retrouve aussi dans l'état Terraform et dans l'artefact `tfplan` : gardez ces accès restreints.
+   ⚠️ Un `terraform plan/apply` lancé **à la main** sans `TF_VAR_resend_cle_api` retirerait le secret de l'API.
 
 ### Dépannage
 
@@ -261,6 +267,8 @@ Procédure (déjà faite, à refaire seulement pour un autre domaine) :
 | `POST /api/auth/deconnexion` | 204 |
 | `GET /api/auth/moi` | 200 `{ courriel }` ou 401 |
 | `POST /api/auth/mot-de-passe` `{ motDePasseActuel, nouveauMotDePasse }` | 204, ou 422 avec `errors.motDePasseActuel` / `errors.nouveauMotDePasse` |
+| `POST /api/auth/mot-de-passe-oublie` `{ courriel }` | **202 toujours** (compte existant ou non), 429 au-delà de 5 demandes / 15 min / IP |
+| `POST /api/auth/reinitialisation` `{ utilisateurId, jeton, nouveauMotDePasse }` | 204, ou 422 avec `errors.jeton` (lien expiré / déjà utilisé) / `errors.nouveauMotDePasse` |
 
 * Toutes les routes `/api/naissances` exigent d'être connecté (`RequireAuthorization` → **401**).
 * Mots de passe **hachés** (PBKDF2) dans `etatcivil.AspNetUsers`, jamais en clair.
@@ -282,6 +290,35 @@ Procédure (déjà faite, à refaire seulement pour un autre domaine) :
 * Page **Mot de passe** : ancien + nouveau + confirmation (Zod reprend les règles du serveur,
   confirmation identique, nouveau ≠ actuel) ; un 422 s'affiche sous le bon champ.
 * La déconnexion vide le cache : l'agent suivant ne voit pas les données du précédent.
+
+### Mot de passe oublié (lien par courriel)
+
+1. Sur la page de connexion, **Mot de passe oublié ?** → `/mot-de-passe-oublie` : l'agent saisit son courriel.
+2. L'API répond **toujours 202** et le même message (« si un compte existe… ») : on ne révèle pas quels
+   courriels sont inscrits. Le courriel est déposé dans une **file en mémoire** et envoyé par un service
+   d'arrière-plan ([Courriels.cs](backend/src/Naissances.Api/Courriels/Courriels.cs)) : la réponse prend
+   le même temps que le compte existe ou non, et une panne passagère de Resend est réessayée 3 fois.
+3. Le lien reçu : `https://naissance.anmbo.ca/reinitialiser-mot-de-passe#id=…&jeton=…`
+   * jeton Identity **valable 30 minutes**, **à usage unique** (lié au « security stamp », qui change
+     avec le mot de passe), chiffré par les clés Data Protection déjà partagées en base ;
+   * il est dans le **fragment `#`** : jamais envoyé au serveur, donc absent des journaux nginx et du
+     `Referer` ; la page l'efface aussitôt de la barre d'adresse.
+4. Nouveau mot de passe (mêmes règles Zod / Identity) → 204 : le **verrouillage** éventuel est levé et un
+   courriel « mot de passe modifié » prévient le titulaire (s'il n'est pas à l'origine du changement).
+
+**Envoi des courriels — [Resend](https://resend.com)** (gratuit jusqu'à 3 000 courriels / mois),
+expéditeur `Registre des naissances <no-reply@anmbo.ca>` (`Courriel:Expediteur`).
+
+| Configuration | Effet |
+|---|---|
+| `Courriel:ResendCleApi` renseignée | envoi réel par l'API HTTP de Resend |
+| vide + `Courriel:JournaliserContenu=true` (docker compose) | rien n'est envoyé ; le courriel **avec le lien** s'affiche dans `docker compose logs api` |
+| vide (sinon) | rien n'est envoyé ; simple avertissement dans le journal, **jamais** le lien |
+
+Mise en place de Resend (une fois) : créer le compte, ajouter le domaine `anmbo.ca` (région la plus proche),
+copier chez le registraire DNS les enregistrements **TXT (SPF), TXT (DKIM `resend._domainkey`) et MX
+(`send`)** affichés par Resend, attendre « Verified », puis créer une clé API **« Sending access »
+limitée au domaine `anmbo.ca`**.
 
 ---
 
@@ -451,6 +488,8 @@ Si l'URL change de l'extérieur (Précédent), la saisie est resynchronisée par
 * Authentification : redirection vers `/connexion` puis retour, identifiants invalides, œil
   afficher/masquer, déconnexion, 401 → reconnexion, changement de mot de passe (succès, 422, confirmation),
   règles Zod du nouveau mot de passe.
+* Mot de passe oublié : lien depuis la connexion, message neutre, validation du courriel, 429 ;
+  réinitialisation (succès + jeton retiré de l'URL, règles du mot de passe, lien expiré, lien incomplet).
 * Note Vitest 5 : `setup.ts` étend aussi le `expect` **global** avec jest-dom (sinon
   « Invalid Chai property: toBeInTheDocument »).
 
@@ -461,9 +500,9 @@ Si l'URL change de l'extérieur (Précédent), la saisie est resynchronisée par
 * Générer les types TypeScript depuis `/openapi/v1.json` (openapi-typescript / orval) pour ne plus
   maintenir `api/naissances.ts` à la main.
 * Rôles (agent / superviseur) et écran d'administration des comptes ; à terme, Entra ID + MSAL React.
-* Mot de passe oublié (lien par courriel), authentification à deux facteurs.
+* Authentification à deux facteurs.
 * Tests d'intégration API avec `WebApplicationFactory` + Testcontainers SQL Server.
-* Key Vault le jour où un secret sera nécessaire (aujourd'hui : aucun, tout passe par identité managée).
+* Key Vault pour la clé Resend (aujourd'hui : secret de la Container App, alimenté par le pipeline).
 * Tests d'intégration de l'API dans le pipeline (SQL Server en conteneur de service).
 * Certificat PDF **signé numériquement** (certificat X.509 dans Key Vault), si un jour un PDF « officiel » est exigé.
 * Rôle « superviseur » obligatoire pour rectifier un acte.

@@ -159,6 +159,10 @@ stages:
               scriptPath: pipelines/terraform.sh
               arguments: plan $(imageTag)
               addSpnToEnvironment: true
+            # Une variable secrète n'est JAMAIS transmise aux scripts sans cette ligne explicite.
+            # (apply n'en a pas besoin : il rejoue le plan approuvé.)
+            env:
+              TF_VAR_resend_cle_api: $(RESEND_CLE_API)
 
           - publish: infra/tfplan
             artifact: tfplan

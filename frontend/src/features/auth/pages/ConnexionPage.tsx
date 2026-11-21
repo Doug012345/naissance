@@ -1,6 +1,6 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { ApiError } from '../../../api/client';
 import { Champ } from '../../../components/Champ';
 import { ChampMotDePasse } from '../../../components/ChampMotDePasse';
@@ -74,6 +74,10 @@ export default function ConnexionPage() {
             </button>
           </div>
         </form>
+
+        <p>
+          <Link to="/mot-de-passe-oublie">Mot de passe oublié ?</Link>
+        </p>
       </section>
     </main>
   );

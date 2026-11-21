@@ -38,6 +38,9 @@ services:
       Authentification__CookieHttpsObligatoire: "false"
       # QR code du certificat PDF : pointe vers le site local.
       Certificat__UrlSite: "http://localhost:8080"
+      # Aucun courriel réel en local : le lien « mot de passe oublié » s'affiche dans
+      # « docker compose logs api ». Pour tester Resend : ajoutez Courriel__ResendCleApi.
+      Courriel__JournaliserContenu: "true"
     depends_on:
       sql:
         condition: service_healthy

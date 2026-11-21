@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import { Link, Navigate, type RouteObject } from 'react-router-dom';
 import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query';
 import { ApiError } from './api/client';
@@ -16,24 +16,22 @@ const RectificationPage = lazy(() => import('./features/naissances/pages/Rectifi
 const CertificatPage = lazy(() => import('./features/certificat/pages/CertificatPage'));
 const VerificationPage = lazy(() => import('./features/certificat/pages/VerificationPage'));
 
-const verification = (
-  <Suspense fallback={<p aria-busy="true">Chargement…</p>}>
-    <VerificationPage />
-  </Suspense>
+const MotDePasseOubliePage = lazy(() => import('./features/auth/pages/MotDePasseOubliePage'));
+const ReinitialisationPage = lazy(() => import('./features/auth/pages/ReinitialisationPage'));
+
+const differe = (page: ReactNode) => (
+  <Suspense fallback={<p aria-busy="true">Chargement…</p>}>{page}</Suspense>
 );
+const verification = differe(<VerificationPage />);
 
 export const routes: RouteObject[] = [
   // Page PUBLIQUE (cible du QR code imprimé sur le certificat) : aucune connexion requise.
   { path: 'verifier', element: verification },
   { path: 'verifier/:code', element: verification },
-  {
-    path: 'connexion',
-    element: (
-      <Suspense fallback={<p aria-busy="true">Chargement…</p>}>
-        <ConnexionPage />
-      </Suspense>
-    ),
-  },
+  { path: 'connexion', element: differe(<ConnexionPage />) },
+  // Mot de passe oublié : forcément PUBLIC (l'agent ne peut pas se connecter).
+  { path: 'mot-de-passe-oublie', element: differe(<MotDePasseOubliePage />) },
+  { path: 'reinitialiser-mot-de-passe', element: differe(<ReinitialisationPage />) },
   {
     // Tout ce qui est sous le Layout exige d'être connecté.
     element: (

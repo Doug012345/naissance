@@ -63,10 +63,9 @@ export async function http<T>(path: string, init: RequestInit = {}): Promise<T> 
 
   await verifier(res);
 
-  if (res.status === 204 || res.headers.get('content-length') === '0') {
-    return undefined as T;
-  }
-  return (await res.json()) as T;
+  // 204, 202 sans corps… : toute réponse vide donne undefined.
+  const texte = await res.text();
+  return (texte ? JSON.parse(texte) : undefined) as T;
 }
 
 export interface Fichier {

@@ -49,3 +49,11 @@ export function useDeconnexion() {
 export function useChangerMotDePasse() {
   return useMutation({ mutationFn: authApi.changerMotDePasse });
 }
+
+export function useMotDePasseOublie() {
+  return useMutation({ mutationFn: authApi.motDePasseOublie });
+}
+
+export function useReinitialiserMotDePasse() {
+  return useMutation({ mutationFn: authApi.reinitialiser });
+}

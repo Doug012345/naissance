@@ -21,6 +21,13 @@ export TF_VAR_subscription_id="$ARM_SUBSCRIPTION_ID"
 export TF_VAR_sql_admin_login=$(az sql server ad-admin list -g rg-naissances -s sql-naissances-doudou --query "[0].login" -o tsv)
 export TF_VAR_sql_admin_object_id=$(az sql server ad-admin list -g rg-naissances -s sql-naissances-doudou --query "[0].sid" -o tsv)
 export TF_VAR_image_tag="$image_tag"
+# Clé Resend : variable SECRÈTE du pipeline, transmise par « env » dans azure-pipelines.yml.
+# Si RESEND_CLE_API n'est pas définie, Azure DevOps laisse le texte « $(RESEND_CLE_API) » tel quel :
+# on le traite comme vide (aucun courriel envoyé) plutôt que de l'envoyer comme clé.
+if [[ "${TF_VAR_resend_cle_api:-}" == '$('* ]]; then
+  echo "##[warning]Variable secrète RESEND_CLE_API absente : les courriels « mot de passe oublié » ne partiront pas."
+  export TF_VAR_resend_cle_api=""
+fi
 export TF_IN_AUTOMATION=true
 
 cd "$(dirname "$0")/../infra"

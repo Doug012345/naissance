@@ -24,6 +24,12 @@ public static class VerificationEndpoints
             o.AddPolicy(PolitiqueLimite, http => RateLimitPartition.GetFixedWindowLimiter(
                 http.Connection.RemoteIpAddress?.ToString() ?? "inconnue",
                 _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromMinutes(1) }));
+
+            // « Mot de passe oublié » : 5 demandes par 15 minutes et par IP.
+            // Empêche d'inonder une boîte de courriels ou d'épuiser le quota gratuit de Resend.
+            o.AddPolicy(AuthEndpoints.PolitiqueMotDePasseOublie, http => RateLimitPartition.GetFixedWindowLimiter(
+                http.Connection.RemoteIpAddress?.ToString() ?? "inconnue",
+                _ => new FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(15) }));
         });
 
     public static IEndpointRouteBuilder MapVerification(this IEndpointRouteBuilder app)
